@@ -1,18 +1,25 @@
-//! spoticlean command-line entry point.
+//! spoticlean server entry point.
 
+mod api;
 mod auth;
 mod matching;
-mod report;
 mod spotify;
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroUsize;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
+use std::time::Duration;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use clap::{Parser, Subcommand};
-use secrecy::SecretString;
-use tracing::debug;
+use cookie::Key;
+use secrecy::{ExposeSecret, SecretString};
+use tokio::net::TcpListener;
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
+use url::Url;
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum LogFormat {
@@ -26,17 +33,16 @@ struct Cli {
     /// `tracing` filter directive (e.g. `info`, `spoticlean=debug`)
     ///
     /// Syntax: <https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html#directives>
-    #[arg(
-        long,
-        env = "SPOTICLEAN_LOG_FILTER",
-        default_value = "info",
-        global = true
-    )]
+    #[arg(long, env = "LOG_FILTER", default_value = "info", global = true)]
     log_filter: String,
 
     /// Log output format
-    #[arg(long, env = "SPOTICLEAN_LOG_FORMAT", value_enum, default_value_t = LogFormat::Text, global = true)]
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value_t = LogFormat::Text, global = true)]
     log_format: LogFormat,
+
+    /// Address the HTTP server listens on
+    #[arg(long, env = "BIND_ADDR", default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)), global = true)]
+    bind_addr: SocketAddr,
 
     #[command(subcommand)]
     command: Command,
@@ -44,23 +50,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Find duplicates among your Liked Songs
-    Saved(SavedArgs),
+    /// Serve the web app
+    Serve(ServeArgs),
+    /// Exit 0 when the server listening on `BIND_ADDR` answers its health
+    /// check, 1 otherwise
+    Healthcheck,
 }
 
 #[derive(clap::Args)]
-struct SavedArgs {
-    /// Client ID of your Spotify app, whose redirect URI must be
-    /// `http://127.0.0.1:8888/auth/callback`
-    #[arg(long, env = "SPOTICLEAN_CLIENT_ID", hide_env_values = true)]
-    client_id: String,
+struct ServeArgs {
+    /// Origin the browser reaches the app at, e.g. `https://spoticlean.example`;
+    /// `<origin>/auth/callback` must be a redirect URI of the Spotify app
+    #[arg(long, env = "PUBLIC_URL", value_parser = api::parse_public_url)]
+    public_url: Url,
+
+    /// Client ID of the Spotify app
+    #[arg(long, env = "SPOTIFY_CLIENT_ID", hide_env_values = true)]
+    spotify_client_id: String,
+
+    /// Base64 of at least 64 random bytes, which encrypt and sign the session
+    /// cookies, e.g. `openssl rand -base64 64`
+    #[arg(long, env = "SESSION_KEY", hide_env_values = true)]
+    session_key: String,
+
+    /// Directory holding the web UI, served for every path outside the API
+    #[arg(long, env = "STATIC_DIR")]
+    static_dir: Option<PathBuf>,
 
     /// Number of pages of Liked Songs fetched at the same time
-    #[arg(long, env = "SPOTICLEAN_CONCURRENCY", default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=16))]
-    concurrency: u8,
+    #[arg(long, env = "SCAN_CONCURRENCY", default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=16))]
+    scan_concurrency: u8,
 
     /// Largest duration gap, in seconds, between two copies of a song
-    #[arg(long, env = "SPOTICLEAN_DURATION_TOLERANCE", default_value_t = 10)]
+    #[arg(long, env = "DURATION_TOLERANCE", default_value_t = 10)]
     duration_tolerance: u64,
 }
 
@@ -69,36 +91,101 @@ fn build_filter(directive: &str) -> Result<EnvFilter, tracing_subscriber::filter
     EnvFilter::try_new(directive)
 }
 
-fn unix_now() -> anyhow::Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("the system clock is before 1970")?
-        .as_secs())
+/// Never echoes the value: clap's own parse errors would.
+fn parse_session_key(value: &SecretString) -> anyhow::Result<Key> {
+    let bytes = STANDARD
+        .decode(value.expose_secret().trim())
+        .map_err(|_| anyhow::anyhow!("SESSION_KEY is not valid base64"))?;
+    Key::try_from(bytes.as_slice())
+        .map_err(|_| anyhow::anyhow!("SESSION_KEY must decode to at least 64 bytes"))
 }
 
-async fn saved(args: SavedArgs) -> anyhow::Result<()> {
+fn check_static_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    if !dir.is_dir() {
+        bail!("STATIC_DIR {} is not a directory", dir.display());
+    }
+    if !dir.join("index.html").is_file() {
+        warn!(dir = %dir.display(), "no index.html in the static directory, the UI routes answer 404");
+    }
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut interrupt = signal(SignalKind::interrupt()).expect("SIGINT handler");
+    let mut terminate = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    tokio::select! {
+        _ = interrupt.recv() => {},
+        _ = terminate.recv() => {},
+    }
+    info!("shutting down, draining open connections");
+}
+
+async fn serve(bind_addr: SocketAddr, args: ServeArgs) -> anyhow::Result<()> {
+    let key = parse_session_key(&SecretString::from(args.session_key))?;
+    if let Some(dir) = &args.static_dir {
+        check_static_dir(dir)?;
+    } else {
+        info!("no STATIC_DIR, serving the API only");
+    }
     let http = reqwest::Client::builder()
         .user_agent(concat!("spoticlean/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()?;
-    let cache = auth::TokenCache::new(auth::TokenCache::default_path()?);
-    let accounts = auth::SpotifyAccounts::new(http.clone(), SecretString::from(args.client_id));
-    let access_token = auth::access_token(&cache, &accounts, unix_now()?).await?;
+    let client_id = SecretString::from(args.spotify_client_id);
+    let settings = api::Settings {
+        client_id: client_id.clone(),
+        public_url: args.public_url,
+        scan_concurrency: NonZeroUsize::new(args.scan_concurrency.into())
+            .context("SCAN_CONCURRENCY must be positive")?,
+        duration_tolerance: Duration::from_secs(args.duration_tolerance),
+        retry: spotify::retry::RetryPolicy::default(),
+    };
+    debug!(redirect_uri = %settings.redirect_uri(), "Spotify redirect URI");
+    let state = api::AppState::new(
+        spotify::SpotifyApi::new(http.clone()),
+        auth::SpotifyAccounts::new(http, client_id),
+        settings,
+        &key,
+    );
+    let app = api::router(state, args.static_dir.as_deref());
 
-    let api = spotify::SpotifyApi::new(http, access_token);
-    let concurrency =
-        NonZeroUsize::new(args.concurrency.into()).context("concurrency must be positive")?;
-    let tracks = spotify::fetch::fetch_saved_tracks(
-        &api,
-        concurrency,
-        &spotify::fetch::RetryPolicy::default(),
-    )
-    .await?;
+    let listener = TcpListener::bind(bind_addr)
+        .await
+        .with_context(|| format!("cannot listen on {bind_addr}"))?;
+    info!(addr = %bind_addr, "listening");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("the HTTP server failed")?;
+    info!("stopped");
+    Ok(())
+}
 
-    let groups = matching::find_groups(&tracks, Duration::from_secs(args.duration_tolerance));
-    debug!(groups = groups.len(), "matched liked songs");
-    print!("{}", report::render(&groups, tracks.len()));
+/// The address to reach a server listening on `bind_addr` from the same host.
+fn local_addr(bind_addr: SocketAddr) -> SocketAddr {
+    let ip = match bind_addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    SocketAddr::new(ip, bind_addr.port())
+}
+
+async fn healthcheck(bind_addr: SocketAddr) -> anyhow::Result<()> {
+    let url = format!("http://{}/healthz", local_addr(bind_addr));
+    debug!(%url, "checking health");
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()?
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("no answer from {url}"))?;
+    if !response.status().is_success() {
+        bail!("{url} answered HTTP {}", response.status());
+    }
     Ok(())
 }
 
@@ -114,7 +201,8 @@ async fn main() -> anyhow::Result<()> {
     }
     debug!(filter = %cli.log_filter, "logging initialised");
     match cli.command {
-        Command::Saved(args) => saved(args).await,
+        Command::Serve(args) => serve(cli.bind_addr, args).await,
+        Command::Healthcheck => healthcheck(cli.bind_addr).await,
     }
 }
 
@@ -123,12 +211,25 @@ mod tests {
     use super::*;
     use clap::CommandFactory as _;
 
-    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+    fn parse_with_url(public_url: &str, args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(
-            ["spoticlean", "saved", "--client-id", "id"]
-                .iter()
-                .chain(args),
+            [
+                "spoticlean",
+                "serve",
+                "--public-url",
+                public_url,
+                "--spotify-client-id",
+                "id",
+                "--session-key",
+                "key",
+            ]
+            .iter()
+            .chain(args),
         )
+    }
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        parse_with_url("https://spoticlean.example", args)
     }
 
     #[test]
@@ -141,32 +242,95 @@ mod tests {
         assert!(build_filter("spoticlean=nope").is_err());
     }
 
+    /// Read from the definition rather than parsed: `cargo test` gets the
+    /// `.cargo/config.toml` environment, which overrides some defaults.
     #[test]
     fn cli_defaults() {
-        let cli = parse(&[]).unwrap();
-        assert_eq!(cli.log_filter, "info");
-        assert!(matches!(cli.log_format, LogFormat::Text));
-        let Command::Saved(args) = cli.command;
-        assert_eq!(args.concurrency, 4);
-        assert_eq!(args.duration_tolerance, 10);
+        let command = Cli::command();
+        let mut defaults: Vec<(String, String)> = command
+            .get_arguments()
+            .map(|arg| (arg.get_id().to_string(), arg.get_default_values().to_vec()))
+            .chain(
+                command
+                    .find_subcommand("serve")
+                    .unwrap()
+                    .get_arguments()
+                    .map(|arg| (arg.get_id().to_string(), arg.get_default_values().to_vec())),
+            )
+            .filter_map(|(id, values)| Some((id, values.first()?.to_string_lossy().into_owned())))
+            .collect();
+        defaults.sort();
+        let expected: Vec<(String, String)> = [
+            ("bind_addr", "0.0.0.0:8080"),
+            ("duration_tolerance", "10"),
+            ("log_filter", "info"),
+            ("log_format", "text"),
+            ("scan_concurrency", "4"),
+        ]
+        .into_iter()
+        .map(|(id, value)| (id.to_owned(), value.to_owned()))
+        .collect();
+        assert_eq!(defaults, expected);
     }
 
     #[test]
     fn cli_rejects_out_of_range_concurrency() {
-        assert!(parse(&["--concurrency", "0"]).is_err());
-        assert!(parse(&["--concurrency", "17"]).is_err());
-        assert!(parse(&["--concurrency", "16"]).is_ok());
+        assert!(parse(&["--scan-concurrency", "0"]).is_err());
+        assert!(parse(&["--scan-concurrency", "17"]).is_err());
+        assert!(parse(&["--scan-concurrency", "16"]).is_ok());
     }
 
     #[test]
-    fn help_never_shows_the_client_id_value() {
+    fn cli_rejects_a_public_url_with_a_path() {
+        assert!(parse_with_url("https://example.com/app", &[]).is_err());
+        assert!(parse_with_url("https://example.com/?a=b", &[]).is_err());
+        assert!(parse_with_url("ftp://example.com", &[]).is_err());
+        assert!(parse_with_url("http://127.0.0.1:8888", &[]).is_ok());
+        assert!(parse_with_url("https://example.com/", &[]).is_ok());
+    }
+
+    #[test]
+    fn healthcheck_needs_no_server_settings() {
+        let cli = Cli::try_parse_from(["spoticlean", "healthcheck"]).unwrap();
+        assert!(matches!(cli.command, Command::Healthcheck));
+    }
+
+    #[test]
+    fn help_never_shows_secret_values() {
         let mut command = Cli::command();
-        let saved = command.find_subcommand_mut("saved").unwrap();
-        let client_id = saved
-            .get_arguments()
-            .find(|arg| arg.get_id() == "client_id")
-            .unwrap();
-        assert!(client_id.is_hide_env_values_set());
+        let serve = command.find_subcommand_mut("serve").unwrap();
+        for id in ["spotify_client_id", "session_key"] {
+            let arg = serve
+                .get_arguments()
+                .find(|arg| arg.get_id() == id)
+                .unwrap();
+            assert!(arg.is_hide_env_values_set(), "{id}");
+        }
+    }
+
+    #[test]
+    fn session_key_needs_64_bytes_of_base64() {
+        let short = SecretString::from(STANDARD.encode([1; 32]));
+        assert!(parse_session_key(&short).is_err());
+        assert!(parse_session_key(&SecretString::from("not base64!")).is_err());
+        let long = SecretString::from(format!("{}\n", STANDARD.encode([1; 64])));
+        assert!(parse_session_key(&long).is_ok());
+    }
+
+    #[test]
+    fn local_addr_targets_loopback_for_wildcards() {
+        assert_eq!(
+            local_addr("0.0.0.0:8080".parse().unwrap()),
+            "127.0.0.1:8080".parse().unwrap()
+        );
+        assert_eq!(
+            local_addr("[::]:8080".parse().unwrap()),
+            "[::1]:8080".parse().unwrap()
+        );
+        assert_eq!(
+            local_addr("127.0.0.1:8888".parse().unwrap()),
+            "127.0.0.1:8888".parse().unwrap()
+        );
     }
 
     #[test]

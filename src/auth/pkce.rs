@@ -6,7 +6,7 @@ use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use super::{REDIRECT_URI, SCOPE};
+use super::SCOPES;
 
 const AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
 
@@ -23,14 +23,19 @@ pub fn challenge(verifier: &SecretString) -> String {
 }
 
 /// The Spotify consent page the user is sent to.
-pub fn authorize_url(client_id: &SecretString, challenge: &str, state: &str) -> Url {
+pub fn authorize_url(
+    client_id: &SecretString,
+    redirect_uri: &str,
+    challenge: &str,
+    state: &str,
+) -> Url {
     Url::parse_with_params(
         AUTHORIZE_URL,
         [
             ("client_id", client_id.expose_secret()),
             ("response_type", "code"),
-            ("redirect_uri", REDIRECT_URI),
-            ("scope", SCOPE),
+            ("redirect_uri", redirect_uri),
+            ("scope", SCOPES),
             ("state", state),
             ("code_challenge_method", "S256"),
             ("code_challenge", challenge),
@@ -69,6 +74,7 @@ mod tests {
     fn authorize_url_carries_the_pkce_parameters() {
         let url = authorize_url(
             &SecretString::from("client-123"),
+            "https://spoticlean.example/auth/callback",
             "the-challenge",
             "the-state",
         );
@@ -78,8 +84,8 @@ mod tests {
         let expected: Vec<(String, String)> = [
             ("client_id", "client-123"),
             ("response_type", "code"),
-            ("redirect_uri", "http://127.0.0.1:8888/auth/callback"),
-            ("scope", "user-library-read"),
+            ("redirect_uri", "https://spoticlean.example/auth/callback"),
+            ("scope", "user-library-read user-library-modify"),
             ("state", "the-state"),
             ("code_challenge_method", "S256"),
             ("code_challenge", "the-challenge"),

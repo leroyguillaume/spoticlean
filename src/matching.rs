@@ -3,9 +3,11 @@
 mod normalize;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use normalize::{analyze_title, normalize_artist};
+use sha2::{Digest, Sha256};
 
 /// A saved track, as far as duplicate detection is concerned.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,29 +29,40 @@ pub struct Track {
 pub enum Confidence {
     /// Every track carries the same ISRC.
     Certain,
-    /// Same title and artist once normalized, same version, close durations.
+    /// Same title and credits once normalized, same version, close durations.
     Probable,
-    /// Same title and artist, but different recordings (live, remix, …).
+    /// Same song, but different recordings (live, remix, new guests, …).
     Variant,
 }
 
 /// Tracks that look like the same song.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Group<'a> {
+    /// Derived from the tracks' names, not from their order, so that the same
+    /// group gets the same key on the next scan.
+    pub key: String,
     pub confidence: Confidence,
     /// Sorted by release date, then by the date they were saved.
     pub tracks: Vec<&'a Track>,
 }
 
-struct Key {
+/// The suffixes of `title` that name its version or reissue, as written
+/// (`2009 Remaster`, `Live at Wembley`), `None` for a bare title.
+pub fn version_label(title: &str) -> Option<String> {
+    let labels = analyze_title(title).labels;
+    (!labels.is_empty()).then(|| labels.join(" · "))
+}
+
+struct Fingerprint {
     core: String,
     primary_artist: String,
+    /// Everyone credited, in the artist list or in the title.
     artists: BTreeSet<String>,
     version: Option<String>,
     isrc: Option<String>,
 }
 
-impl Key {
+impl Fingerprint {
     fn new(track: &Track) -> Self {
         let title = analyze_title(&track.title);
         let primary_artist = track
@@ -88,7 +101,7 @@ impl Key {
     /// credit order, while keeping covers apart. When both tracks credit
     /// someone else as well, one of those must be shared: the same composer
     /// played by two orchestras is two recordings.
-    fn same_artist(&self, other: &Self) -> bool {
+    fn same_song(&self, other: &Self) -> bool {
         if self.primary_artist.is_empty()
             || other.primary_artist.is_empty()
             || !self.artists.contains(&other.primary_artist)
@@ -97,8 +110,9 @@ impl Key {
             return false;
         }
         let primaries = [&self.primary_artist, &other.primary_artist];
-        let others = |key: &Self| -> BTreeSet<String> {
-            key.artists
+        let others = |fingerprint: &Self| -> BTreeSet<String> {
+            fingerprint
+                .artists
                 .iter()
                 .filter(|name| !primaries.contains(name))
                 .cloned()
@@ -106,6 +120,34 @@ impl Key {
         };
         let (mine, theirs) = (others(self), others(other));
         mine.is_empty() || theirs.is_empty() || !mine.is_disjoint(&theirs)
+    }
+
+    /// What tells two recordings of one song apart: the version, and who is
+    /// credited. A guest credited on one track only means a re-recording.
+    fn recording(&self) -> (&Option<String>, &BTreeSet<String>) {
+        (&self.version, &self.artists)
+    }
+
+    /// Identifies the recording by name, or by ISRC for a track whose name
+    /// says nothing.
+    fn recording_identity(&self, track: &Track) -> String {
+        if self.core.is_empty() || self.primary_artist.is_empty() {
+            return match &self.isrc {
+                Some(isrc) => format!("isrc:{isrc}"),
+                None => format!("id:{}", track.id),
+            };
+        }
+        let credits: Vec<&str> = self.artists.iter().map(String::as_str).collect();
+        format!(
+            "name:{}\u{1f}{}\u{1f}{}",
+            self.core,
+            self.version.as_deref().unwrap_or_default(),
+            credits.join("\u{1e}")
+        )
+    }
+
+    fn song_identity(&self) -> String {
+        format!("name:{}\u{1f}{}", self.core, self.primary_artist)
     }
 }
 
@@ -141,40 +183,47 @@ impl DisjointSet {
     }
 }
 
+/// A group before its key is final: `identity` is what the key hashes.
+struct Draft {
+    confidence: Confidence,
+    identity: String,
+    members: Vec<usize>,
+}
+
 /// Groups `tracks` that look like the same song, most certain groups first.
 ///
 /// Durations further apart than `tolerance` mean different songs that happen
 /// to share a title and an artist (`Intro`, `Untitled`), so such tracks are
 /// never reported as duplicates.
 pub fn find_groups(tracks: &[Track], tolerance: Duration) -> Vec<Group<'_>> {
-    let keys: Vec<Key> = tracks.iter().map(Key::new).collect();
+    let fingerprints: Vec<Fingerprint> = tracks.iter().map(Fingerprint::new).collect();
     let mut duplicates = DisjointSet::new(tracks.len());
 
     let mut by_isrc: HashMap<&str, usize> = HashMap::new();
-    for (index, key) in keys.iter().enumerate() {
-        if let Some(isrc) = &key.isrc {
+    for (index, fingerprint) in fingerprints.iter().enumerate() {
+        if let Some(isrc) = &fingerprint.isrc {
             let first = *by_isrc.entry(isrc).or_insert(index);
             duplicates.union(first, index);
         }
     }
 
     let mut by_title: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-    for (index, key) in keys.iter().enumerate() {
-        if !key.core.is_empty() {
-            by_title.entry(&key.core).or_default().push(index);
+    for (index, fingerprint) in fingerprints.iter().enumerate() {
+        if !fingerprint.core.is_empty() {
+            by_title.entry(&fingerprint.core).or_default().push(index);
         }
     }
 
-    let mut groups = Vec::new();
+    let mut drafts = Vec::new();
     for bucket in by_title.values().filter(|bucket| bucket.len() > 1) {
         let mut songs = DisjointSet::new(tracks.len());
         for (position, &a) in bucket.iter().enumerate() {
             for &b in &bucket[position + 1..] {
-                if !keys[a].same_artist(&keys[b]) {
+                if !fingerprints[a].same_song(&fingerprints[b]) {
                     continue;
                 }
                 songs.union(a, b);
-                if keys[a].version == keys[b].version
+                if fingerprints[a].recording() == fingerprints[b].recording()
                     && tracks[a].duration.abs_diff(tracks[b].duration) <= tolerance
                 {
                     duplicates.union(a, b);
@@ -182,9 +231,19 @@ pub fn find_groups(tracks: &[Track], tolerance: Duration) -> Vec<Group<'_>> {
             }
         }
         for song in songs.components(bucket.iter().copied()) {
-            let versions: BTreeSet<_> = song.iter().map(|&index| &keys[index].version).collect();
-            if versions.len() > 1 {
-                groups.push(group(tracks, Confidence::Variant, &song));
+            let recordings: BTreeSet<_> = song
+                .iter()
+                .map(|&index| fingerprints[index].recording())
+                .collect();
+            if recordings.len() > 1 {
+                drafts.push(Draft {
+                    confidence: Confidence::Variant,
+                    identity: smallest(
+                        song.iter()
+                            .map(|&index| fingerprints[index].song_identity()),
+                    ),
+                    members: song,
+                });
             }
         }
     }
@@ -193,17 +252,28 @@ pub fn find_groups(tracks: &[Track], tolerance: Duration) -> Vec<Group<'_>> {
         if members.len() < 2 {
             continue;
         }
-        let first_isrc = &keys[members[0]].isrc;
+        let first_isrc = &fingerprints[members[0]].isrc;
         let confidence = if first_isrc.is_some()
-            && members.iter().all(|&index| keys[index].isrc == *first_isrc)
+            && members
+                .iter()
+                .all(|&index| fingerprints[index].isrc == *first_isrc)
         {
             Confidence::Certain
         } else {
             Confidence::Probable
         };
-        groups.push(group(tracks, confidence, &members));
+        drafts.push(Draft {
+            confidence,
+            identity: smallest(
+                members
+                    .iter()
+                    .map(|&index| fingerprints[index].recording_identity(&tracks[index])),
+            ),
+            members,
+        });
     }
 
+    let mut groups = finish(tracks, drafts);
     groups.sort_by_cached_key(|group| {
         let first = group.tracks[0];
         (
@@ -215,12 +285,72 @@ pub fn find_groups(tracks: &[Track], tolerance: Duration) -> Vec<Group<'_>> {
     groups
 }
 
-fn group<'a>(tracks: &'a [Track], confidence: Confidence, members: &[usize]) -> Group<'a> {
+fn smallest(identities: impl Iterator<Item = String>) -> String {
+    identities.min().unwrap_or_default()
+}
+
+/// Two groups can share an identity, say two pairs of `Intro`s too far apart
+/// in duration to be one recording; their smallest track ID tells them apart.
+fn finish(tracks: &[Track], drafts: Vec<Draft>) -> Vec<Group<'_>> {
+    let mut seen: HashMap<(bool, &str), usize> = HashMap::new();
+    for draft in &drafts {
+        *seen
+            .entry((draft.confidence == Confidence::Variant, &draft.identity))
+            .or_default() += 1;
+    }
+    let shared: BTreeSet<(bool, String)> = seen
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|((variant, identity), _)| (variant, identity.to_owned()))
+        .collect();
+    drafts
+        .into_iter()
+        .map(|draft| {
+            let variant = draft.confidence == Confidence::Variant;
+            let mut identity = draft.identity;
+            if shared.contains(&(variant, identity.clone())) {
+                let first_id = draft
+                    .members
+                    .iter()
+                    .map(|&index| tracks[index].id.as_str())
+                    .min()
+                    .unwrap_or_default();
+                identity = format!("{identity}\u{1f}{first_id}");
+            }
+            group(
+                tracks,
+                draft.confidence,
+                &group_key(variant, &identity),
+                &draft.members,
+            )
+        })
+        .collect()
+}
+
+fn group_key(variant: bool, identity: &str) -> String {
+    let kind = if variant { "variant" } else { "duplicate" };
+    let digest = Sha256::digest(format!("{kind}\0{identity}").as_bytes());
+    digest[..12].iter().fold(String::new(), |mut key, byte| {
+        let _ = write!(key, "{byte:02x}");
+        key
+    })
+}
+
+fn group<'a>(
+    tracks: &'a [Track],
+    confidence: Confidence,
+    key: &str,
+    members: &[usize],
+) -> Group<'a> {
     let mut tracks: Vec<&Track> = members.iter().map(|&index| &tracks[index]).collect();
     tracks.sort_by(|a, b| {
         (&a.release_date, &a.added_at, &a.id).cmp(&(&b.release_date, &b.added_at, &b.id))
     });
-    Group { confidence, tracks }
+    Group {
+        key: key.to_owned(),
+        confidence,
+        tracks,
+    }
 }
 
 #[cfg(test)]
@@ -393,6 +523,79 @@ mod tests {
         assert_eq!(
             summary(&find_groups(&tracks, TOLERANCE)),
             [(Confidence::Probable, ids(&["a", "b"]))]
+        );
+    }
+
+    #[test]
+    fn re_recording_with_new_guests_is_a_variant() {
+        let tracks = [
+            with_release(track("a", "Lola", &["Superbus"], 214), "2006-01-01"),
+            with_release(
+                track(
+                    "b",
+                    "Lola (feat. Nicola Sirkis)",
+                    &["Superbus", "Hoshi", "Nicola Sirkis"],
+                    216,
+                ),
+                "2025-03-14",
+            ),
+        ];
+        assert_eq!(
+            summary(&find_groups(&tracks, TOLERANCE)),
+            [(Confidence::Variant, ids(&["a", "b"]))]
+        );
+    }
+
+    #[test]
+    fn guest_credited_in_the_artist_list_only_is_a_variant() {
+        let tracks = [
+            track("a", "Song", &["Artist"], 200),
+            track("b", "Song", &["Artist", "Guest"], 201),
+        ];
+        assert_eq!(
+            summary(&find_groups(&tracks, TOLERANCE)),
+            [(Confidence::Variant, ids(&["a", "b"]))]
+        );
+    }
+
+    #[test]
+    fn guest_moved_from_the_title_to_the_artists_with_extra_copies() {
+        let tracks = [
+            track("a", "Song (feat. Guest)", &["Artist"], 200),
+            track("b", "Song", &["Artist", "Guest"], 201),
+            track("c", "Song (with Guest) - Remastered", &["Artist"], 199),
+        ];
+        assert_eq!(
+            summary(&find_groups(&tracks, TOLERANCE)),
+            [(Confidence::Probable, ids(&["a", "b", "c"]))]
+        );
+    }
+
+    #[test]
+    fn year_prefixed_remix_of_the_own_album_is_a_duplicate() {
+        let tracks = [
+            with_release(track("a", "Sheep", &["Pink Floyd"], 625), "1977-01-23"),
+            with_release(
+                track("b", "Sheep - 2018 Remix", &["Pink Floyd"], 624),
+                "2018-09-28",
+            ),
+        ];
+        assert_eq!(
+            summary(&find_groups(&tracks, TOLERANCE)),
+            [(Confidence::Probable, ids(&["a", "b"]))]
+        );
+    }
+
+    #[test]
+    fn remix_by_someone_else_stays_a_variant() {
+        let tracks = [
+            track("a", "Sheep", &["Pink Floyd"], 625),
+            track("b", "Sheep - Some DJ Remix", &["Pink Floyd"], 624),
+            track("c", "Sheep - Remix", &["Pink Floyd"], 623),
+        ];
+        assert_eq!(
+            summary(&find_groups(&tracks, TOLERANCE)),
+            [(Confidence::Variant, ids(&["a", "b", "c"]))]
         );
     }
 
@@ -577,6 +780,84 @@ mod tests {
         ];
         assert!(find_groups(&tracks, TOLERANCE).is_empty());
         assert!(find_groups(&[], TOLERANCE).is_empty());
+    }
+
+    fn keys(groups: &[Group<'_>]) -> Vec<(Confidence, String)> {
+        let mut keys: Vec<_> = groups
+            .iter()
+            .map(|group| (group.confidence, group.key.clone()))
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    #[test]
+    fn group_keys_do_not_depend_on_the_library_order() {
+        let tracks = vec![
+            track("a", "Song", &["Artist"], 200),
+            track("b", "Song - 2011 Remaster", &["Artist"], 201),
+            track("c", "Song - Live", &["Artist"], 260),
+            with_isrc(track("d", "Other", &["Artist"], 100), "USAAA0000001"),
+            with_isrc(track("e", "Other", &["Artist"], 100), "USAAA0000001"),
+        ];
+        let mut reversed = tracks.clone();
+        reversed.reverse();
+        let groups = find_groups(&tracks, TOLERANCE);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(keys(&groups), keys(&find_groups(&reversed, TOLERANCE)));
+        let distinct: BTreeSet<&str> = groups.iter().map(|group| group.key.as_str()).collect();
+        assert_eq!(distinct.len(), 3);
+        assert!(
+            groups
+                .iter()
+                .all(|group| group.key.len() == 24
+                    && group.key.bytes().all(|b| b.is_ascii_hexdigit()))
+        );
+    }
+
+    #[test]
+    fn group_key_survives_a_new_copy_and_a_lost_isrc_match() {
+        let pair = [
+            with_isrc(track("a", "Song", &["Artist"], 200), "USAAA0000001"),
+            with_isrc(track("b", "Song", &["Artist"], 200), "USAAA0000001"),
+        ];
+        let trio = [
+            pair[0].clone(),
+            pair[1].clone(),
+            track("c", "Song (Deluxe)", &["Artist"], 201),
+        ];
+        let before = find_groups(&pair, TOLERANCE);
+        let after = find_groups(&trio, TOLERANCE);
+        assert_eq!(before[0].confidence, Confidence::Certain);
+        assert_eq!(after[0].confidence, Confidence::Probable);
+        assert_eq!(before[0].key, after[0].key);
+    }
+
+    #[test]
+    fn homonym_groups_get_distinct_keys() {
+        let tracks = [
+            track("a", "Intro", &["Artist"], 60),
+            track("b", "Intro", &["Artist"], 61),
+            track("c", "Intro", &["Artist"], 95),
+            track("d", "Intro", &["Artist"], 96),
+        ];
+        let groups = find_groups(&tracks, TOLERANCE);
+        assert_eq!(groups.len(), 2);
+        assert_ne!(groups[0].key, groups[1].key);
+    }
+
+    #[test]
+    fn version_label_keeps_the_suffixes_as_written() {
+        assert_eq!(
+            version_label("Let It Be - Remastered 2009").as_deref(),
+            Some("Remastered 2009")
+        );
+        assert_eq!(
+            version_label("Song (Live) - 2011 Remaster").as_deref(),
+            Some("Live · 2011 Remaster")
+        );
+        assert_eq!(version_label("Song (feat. Guest)"), None);
+        assert_eq!(version_label("Song"), None);
     }
 
     #[test]

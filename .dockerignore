@@ -1,0 +1,9 @@
+.git/
+.github/
+target/
+docs/
+*.md
+.dockerignore
+.pre-commit-config.yaml
+.yamllint.yaml
+Dockerfile
