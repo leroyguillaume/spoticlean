@@ -1,0 +1,17 @@
+extends: default
+
+rules:
+  document-start:
+    present: false
+  braces:
+    forbid: non-empty
+  brackets:
+    forbid: non-empty
+  line-length: disable
+  truthy:
+    allowed-values:
+      - 'true'
+      - 'false'
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
