@@ -1,0 +1,53 @@
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args:
+          - --allow-multiple-documents
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-toml
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        # Warning-level rules (document-start among them) are printed and then
+        # ignored without this — the hook passes anyway.
+        args:
+          - --strict
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: local
+    hooks:
+      - id: no-co-authors
+        name: no co-authors in commit message
+        entry: '^\s*co-authored-by:|\bgenerated with\b'
+        language: pygrep
+        args:
+          - --ignore-case
+        stages:
+          - commit-msg
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --check
+        language: system
+        types:
+          - rust
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --locked -- -D warnings
+        language: system
+        types:
+          - rust
+        pass_filenames: false
