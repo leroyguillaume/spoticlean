@@ -11,3 +11,5 @@ charts/
 scripts/
 .trivy/
 .trivyignore
+web/node_modules/
+web/dist/

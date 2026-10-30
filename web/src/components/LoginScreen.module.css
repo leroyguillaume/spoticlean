@@ -1,0 +1,128 @@
+.main {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 56px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px var(--gutter) 64px;
+}
+
+.intro {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(36px, 5vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.lead {
+  margin: 0;
+  max-width: 520px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--color-body);
+}
+
+.login {
+  composes: primary from "./ui.module.css";
+  align-self: flex-start;
+  min-height: 52px;
+  padding: 0 28px;
+  font-size: 17px;
+}
+
+.note {
+  margin: 0;
+  max-width: 480px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.preview {
+  composes: card from "./ui.module.css";
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.reason {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.song {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.artist {
+  font-size: 15px;
+  color: var(--color-muted);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-muted);
+  color: var(--color-muted);
+}
+
+.kept {
+  composes: row;
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+}
+
+.action {
+  width: 64px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.kept .action {
+  color: var(--color-accent-ink);
+}
+
+.album {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+}
+
+.year {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-muted);
+}
