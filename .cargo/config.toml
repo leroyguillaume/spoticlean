@@ -1,0 +1,7 @@
+# Development defaults for `cargo run -- serve`, matching the redirect URI
+# registered for local use. Cargo sets these only for the processes it
+# spawns (`cargo run`, `cargo test`), not for ./target/debug/spoticlean run by
+# hand nor for the container; a variable already set in the environment wins.
+[env]
+BIND_ADDR = "127.0.0.1:8888"
+PUBLIC_URL = "http://127.0.0.1:8888"

@@ -12,6 +12,8 @@ pub struct TitleAnalysis {
     /// Normalized label of a different recording (`live`, `remix`, …), `None`
     /// for the original recording or one of its reissues.
     pub version: Option<String>,
+    /// The version and reissue suffixes as written (`2009 Remaster`, `Live`).
+    pub labels: Vec<String>,
 }
 
 enum Segment {
@@ -20,6 +22,8 @@ enum Segment {
     Variant(String),
     Kept(String),
 }
+
+const REMIX: &[&str] = &["remix", "remixed", "mix"];
 
 const FEATURING: &[&str] = &["feat", "ft", "featuring", "with"];
 
@@ -139,6 +143,7 @@ pub fn analyze_title(title: &str) -> TitleAnalysis {
 
     let mut kept = vec![head];
     let mut variants = Vec::new();
+    let mut labels = Vec::new();
     for raw in groups
         .iter()
         .flat_map(|group| split_segment(group))
@@ -146,8 +151,11 @@ pub fn analyze_title(title: &str) -> TitleAnalysis {
     {
         match classify(&raw) {
             Segment::Featuring(names) => featured.extend(names),
-            Segment::SameRecording => {}
-            Segment::Variant(label) => variants.push(label),
+            Segment::SameRecording => labels.push(raw),
+            Segment::Variant(label) => {
+                variants.push(label);
+                labels.push(raw);
+            }
             Segment::Kept(text) => kept.push(text),
         }
     }
@@ -159,6 +167,7 @@ pub fn analyze_title(title: &str) -> TitleAnalysis {
         core: normalize_text(&kept.join(" ")),
         featured,
         version: (!variants.is_empty()).then(|| variants.join(" ")),
+        labels,
     }
 }
 
@@ -257,6 +266,19 @@ fn is_ordinal(word: &str) -> bool {
     })
 }
 
+/// `2018 Remix`: a dated remix of the artist's own record, issued like a
+/// remaster, unlike `DJ Name Remix`, which is someone else's take.
+fn is_year_remix(words: &[&str]) -> bool {
+    let significant: Vec<&str> = words
+        .iter()
+        .copied()
+        .filter(|word| {
+            !SAME_RECORDING.contains(word) && !FILLER.contains(word) && !REMASTER.contains(word)
+        })
+        .collect();
+    matches!(significant.as_slice(), [year, mix] if is_year(year) && REMIX.contains(mix))
+}
+
 fn classify(raw: &str) -> Segment {
     let normalized = normalize_text(raw);
     let words: Vec<&str> = normalized.split_whitespace().collect();
@@ -272,6 +294,10 @@ fn classify(raw: &str) -> Segment {
         return Segment::Featuring(split_artist_list(names));
     }
     if *first == "from" {
+        return Segment::SameRecording;
+    }
+
+    if is_year_remix(&words) {
         return Segment::SameRecording;
     }
 
@@ -429,6 +455,43 @@ mod tests {
             assert_eq!(analysis.core, "song", "{title}");
             assert_eq!(analysis.version.as_deref(), Some(expected), "{title}");
         }
+    }
+
+    #[test]
+    fn year_prefixed_remix_is_the_same_recording() {
+        for title in [
+            "Sheep - 2018 Remix",
+            "Sheep (2018 Remix)",
+            "Sheep - 2018 Remixed Version",
+            "Sheep - 2019 Mix",
+        ] {
+            let analysis = analyze_title(title);
+            assert_eq!(analysis.core, "sheep", "{title}");
+            assert_eq!(analysis.version, None, "{title}");
+        }
+    }
+
+    #[test]
+    fn remix_without_a_leading_year_stays_a_variant() {
+        assert_eq!(version("Sheep - Remix").as_deref(), Some("remix"));
+        assert_eq!(
+            version("Sheep - Some DJ 2018 Remix").as_deref(),
+            Some("some dj 2018 remix")
+        );
+        assert_eq!(version("Sheep - Remix 2018").as_deref(), Some("remix 2018"));
+    }
+
+    #[test]
+    fn labels_keep_the_suffixes_as_written() {
+        assert_eq!(
+            analyze_title("Song (feat. B) - 2011 Remaster").labels,
+            ["2011 Remaster"]
+        );
+        assert_eq!(
+            analyze_title("Song (Live) - Remastered").labels,
+            ["Live", "Remastered"]
+        );
+        assert_eq!(analyze_title("Song (Part 2)").labels, Vec::<String>::new());
     }
 
     #[test]

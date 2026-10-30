@@ -1,10 +1,13 @@
 //! Spotify Web API access to the user's saved tracks.
 
 pub mod fetch;
+pub mod remove;
+pub mod retry;
 
+use std::future::Future;
 use std::time::Duration;
 
-use reqwest::{StatusCode, header};
+use reqwest::{RequestBuilder, StatusCode, header};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use tracing::debug;
@@ -15,6 +18,9 @@ const API_BASE_URL: &str = "https://api.spotify.com/v1";
 
 /// Largest `limit` the saved-tracks endpoint accepts.
 pub const PAGE_SIZE: u32 = 50;
+
+/// Largest number of URIs `DELETE /me/library` accepts in one request.
+pub const REMOVE_BATCH_SIZE: usize = 40;
 
 /// One page of the user's saved tracks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +38,7 @@ pub enum ApiError {
     Server { status: u16 },
     #[error("cannot reach Spotify: {0}")]
     Network(String),
-    #[error("Spotify rejected the access token (HTTP 401); delete the token cache to log in again")]
+    #[error("Spotify rejected the access token (HTTP 401)")]
     Unauthorized,
     #[error(
         "Spotify refused access (HTTP 403): {0}; a development-mode app only \
@@ -55,54 +61,93 @@ impl ApiError {
     }
 }
 
-/// The part of the Web API spoticlean reads.
+/// The part of the Web API spoticlean uses, on behalf of the user whose
+/// access token is passed in.
 #[cfg_attr(test, mockall::automock)]
-// automock copies this onto the mock, whose `async fn`s never await.
-#[cfg_attr(test, allow(clippy::unused_async_trait_impl))]
 pub trait Library {
-    async fn saved_tracks(&self, offset: u32, limit: u32) -> Result<SavedTracksPage, ApiError>;
+    fn saved_tracks(
+        &self,
+        access_token: &SecretString,
+        offset: u32,
+        limit: u32,
+    ) -> impl Future<Output = Result<SavedTracksPage, ApiError>> + Send;
+
+    /// Removes at most [`REMOVE_BATCH_SIZE`] tracks from the user's likes.
+    fn remove_saved_tracks(
+        &self,
+        access_token: &SecretString,
+        ids: &[String],
+    ) -> impl Future<Output = Result<(), ApiError>> + Send;
 }
 
-/// [`Library`] over HTTPS, authenticated as the user.
+/// [`Library`] over HTTPS.
 pub struct SpotifyApi {
     http: reqwest::Client,
-    access_token: SecretString,
 }
 
 impl SpotifyApi {
-    pub fn new(http: reqwest::Client, access_token: SecretString) -> Self {
-        Self { http, access_token }
+    pub fn new(http: reqwest::Client) -> Self {
+        Self { http }
     }
 }
 
 impl Library for SpotifyApi {
-    async fn saved_tracks(&self, offset: u32, limit: u32) -> Result<SavedTracksPage, ApiError> {
+    async fn saved_tracks(
+        &self,
+        access_token: &SecretString,
+        offset: u32,
+        limit: u32,
+    ) -> Result<SavedTracksPage, ApiError> {
         debug!(offset, limit, "requesting saved tracks");
-        let response = self
+        let request = self
             .http
             .get(format!("{API_BASE_URL}/me/tracks"))
-            .query(&[("offset", offset), ("limit", limit)])
-            .bearer_auth(self.access_token.expose_secret())
-            .send()
-            .await
-            .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
-        let status = response.status();
-        debug!(offset, status = status.as_u16(), "saved tracks response");
-        if status.is_success() {
-            let body = response
-                .bytes()
-                .await
-                .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
-            return parse_page(&body);
-        }
-        let retry_after = response
-            .headers()
-            .get(header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(parse_retry_after);
-        let body = response.text().await.unwrap_or_default();
-        Err(classify_failure(status, retry_after, &body))
+            .query(&[("offset", offset), ("limit", limit)]);
+        let body = send(request, access_token).await?;
+        parse_page(&body)
     }
+
+    async fn remove_saved_tracks(
+        &self,
+        access_token: &SecretString,
+        ids: &[String],
+    ) -> Result<(), ApiError> {
+        debug!(count = ids.len(), "removing saved tracks");
+        let uris = ids
+            .iter()
+            .map(|id| format!("spotify:track:{id}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let request = self
+            .http
+            .delete(format!("{API_BASE_URL}/me/library"))
+            .query(&[("uris", uris)]);
+        send(request, access_token).await.map(drop)
+    }
+}
+
+async fn send(request: RequestBuilder, access_token: &SecretString) -> Result<Vec<u8>, ApiError> {
+    let response = request
+        .bearer_auth(access_token.expose_secret())
+        .send()
+        .await
+        .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
+    let status = response.status();
+    debug!(status = status.as_u16(), "Spotify response");
+    if status.is_success() {
+        return response
+            .bytes()
+            .await
+            .map(Vec::from)
+            .map_err(|error| ApiError::Network(error.without_url().to_string()));
+    }
+    let retry_after = response
+        .headers()
+        .get(header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_retry_after);
+    let body = response.text().await.unwrap_or_default();
+    Err(classify_failure(status, retry_after, &body))
 }
 
 fn parse_retry_after(value: &str) -> Option<Duration> {
@@ -213,6 +258,12 @@ fn parse_page(body: &[u8]) -> Result<SavedTracksPage, ApiError> {
         total: page.total,
         tracks,
     })
+}
+
+/// A mocked call's answer, already resolved.
+#[cfg(test)]
+pub fn ready<T: Send + 'static>(value: T) -> std::pin::Pin<Box<dyn Future<Output = T> + Send>> {
+    Box::pin(std::future::ready(value))
 }
 
 #[cfg(test)]

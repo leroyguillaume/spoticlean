@@ -27,6 +27,10 @@ repos:
     rev: v1.7.12
     hooks:
       - id: actionlint
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.15.1
+    hooks:
+      - id: hadolint
   - repo: local
     hooks:
       - id: no-co-authors
@@ -51,3 +55,9 @@ repos:
         types:
           - rust
         pass_filenames: false
+      - id: trivy-dockerfile
+        name: trivy config (Dockerfile)
+        entry: trivy config --exit-code 1 Dockerfile
+        language: system
+        pass_filenames: false
+        files: ^Dockerfile$
