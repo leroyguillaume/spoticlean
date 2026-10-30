@@ -104,3 +104,35 @@ describe("reviewGroups", () => {
     expect(prob?.differs).toEqual({ album: false, releaseDate: false, duration: true });
   });
 });
+
+describe("group title", () => {
+  const titled = (title: string, versionLabel: string | null, other = "Marée haute") =>
+    reviewGroups(
+      [group({ tracks: [track({ title, versionLabel }), track({ title: other, versionLabel })] })],
+      DEFAULT_CHOICES,
+      new Set(),
+    )[0]?.title;
+
+  it.each([
+    ["dash", "Bad - 2012 Remaster"],
+    ["parentheses", "Bad (2012 Remaster)"],
+    ["brackets", "Bad [2012 Remaster]"],
+    ["another case", "Bad - 2012 REMASTER"],
+  ])("strips the label in the %s form", (_form, title) => {
+    expect(titled(title, "2012 Remaster", title)).toBe("Bad");
+  });
+
+  it("keeps a feat. in the title", () => {
+    const title = "Stop (feat. Siedah Garrett) - 2012 Remaster";
+    expect(titled(title, "2012 Remaster", title)).toBe("Stop (feat. Siedah Garrett)");
+  });
+
+  it("keeps the title when the label is absent from it", () => {
+    expect(titled("Bad - Deluxe", "2012 Remaster", "Bad - Deluxe")).toBe("Bad - Deluxe");
+  });
+
+  it("uses a bare track as is", () => {
+    const [reviewed] = reviewGroups([certain], DEFAULT_CHOICES, new Set());
+    expect(reviewed?.title).toBe("Marée haute");
+  });
+});
