@@ -42,14 +42,33 @@ export const TAB_FILTERS: Record<Tab, (group: ReviewGroup) => boolean> = {
   ignored: (group) => group.dismissed,
 };
 
-/** A bare title when one of the tracks has it, the shortest one otherwise. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The title without its version label, in the ` - x`, ` (x)` or ` [x]` form. */
+function withoutVersion(track: Track): string {
+  if (track.versionLabel == null) {
+    return track.title;
+  }
+  const label = escapeRegExp(track.versionLabel.trim());
+  const suffix = new RegExp(
+    `\\s+(?:-\\s+${label}|\\(\\s*${label}\\s*\\)|\\[\\s*${label}\\s*\\])\\s*$`,
+    "i",
+  );
+  return track.title.replace(suffix, "").trim();
+}
+
+/** The base title of a bare track when there is one, of the shortest track otherwise. */
 function groupTitle(tracks: readonly Track[]): string {
   const bare = tracks.filter((track) => track.versionLabel == null);
   const candidates = bare.length > 0 ? bare : tracks;
-  return candidates.reduce(
-    (shortest, track) => (track.title.length < shortest.length ? track.title : shortest),
-    candidates[0]?.title ?? "",
+  const chosen = candidates.reduce<Track | undefined>(
+    (shortest, track) =>
+      shortest && shortest.title.length <= track.title.length ? shortest : track,
+    undefined,
   );
+  return chosen ? withoutVersion(chosen) : "";
 }
 
 function differs(tracks: readonly Track[], value: (track: Track) => string): boolean {
