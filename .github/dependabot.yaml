@@ -8,6 +8,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # aide is built against one schemars and one axum major: bumped
+      # alone, either of them leaves two versions in the graph and the
+      # trait impls stop matching.
+      aide:
+        patterns:
+          - aide
+          - axum
+          - schemars
   - package-ecosystem: docker
     directory: /
     schedule:
