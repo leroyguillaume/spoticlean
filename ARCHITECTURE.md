@@ -20,8 +20,10 @@ flowchart LR
     api -->|"find_groups()"| matching["src/matching"]
 ```
 
-The [`Dockerfile`](Dockerfile) builds a distroless image that runs the one
-binary as UID 65532.
+The [`Dockerfile`](Dockerfile) builds the UI with Node.js and the server with
+Rust, then copies both into a distroless image that runs the one binary as UID
+65532, with `STATIC_DIR` pointing at the UI's files in
+`/usr/share/spoticlean/web`.
 
 ## Deployment
 
@@ -91,6 +93,19 @@ flowchart LR
   plain values. [`normalize.rs`](src/matching/normalize.rs) turns titles and
   artist names into comparable keys.
 
+- **[`web`](web/)** is the single-page UI, in React and TypeScript, built by
+  Vite into static files. It has no router: one page whose screen (login,
+  scan, review) follows the session and the scan, held in memory.
+  [`api/client.ts`](web/src/api/client.ts) is its only door to the server,
+  `fetch` for the JSON calls and an `EventSource` for the scan, and checks
+  every body against the `zod` schemas that
+  [`@hey-api/openapi-ts`](https://heyapi.dev) generates from
+  [`openapi.json`](web/openapi.json), the backend's OpenAPI document, which a
+  backend test keeps current. [`review/`](web/src/review/) holds the review
+  logic as plain functions: the keep rules, the groups as the user's choices
+  shape them, the reason line, the choices' storage and the CSV export;
+  [`components/`](web/src/components/) renders the screens.
+
 `Accounts` and `Library` are the seams the tests mock: the router is built
 over either the HTTPS clients or `mockall` doubles, and the API tests drive it
 in process.
@@ -141,6 +156,33 @@ the groups, or one `error` event with a problem, and closes the stream.
 
 The scan runs inside the response body. A client that disconnects drops the
 stream, which drops the requests still in flight to Spotify.
+
+The UI opens the stream with an `EventSource`, which reconnects whenever a
+stream ends, so it closes it as soon as the `result` or `error` event
+arrives. An `EventSource` does not expose the status of a refused stream: when
+the stream fails before its last event, the UI asks `GET /api/v1/session`
+whether the session is gone (`401`, back to the login screen) or the
+connection dropped (an error, with a retry).
+
+### Review
+
+Everything between the scan and the removal happens in the browser, over the
+scan's result:
+
+- a group is a duplicate when it is certain or probable and not dismissed, or
+  a variant the user promoted;
+- in each duplicate group, the track kept is the user's pick for that group
+  when it is still in it, otherwise the one the keep rule chooses: the
+  earliest release, the first liked, or the latest release, ties going to the
+  earliest like (the latest, for the latest release), and a track without a
+  release date never chosen;
+- the tracks marked for removal are every other track of the duplicate
+  groups, once each, since a track can sit in a duplicate group and in a
+  variant group.
+
+The removal sends those IDs; the tracks the server reports removed leave the
+review, and a group left with one track goes with them. The failed ones stay
+marked, so a second attempt sends them again.
 
 ### Removal
 
@@ -214,9 +256,22 @@ AES-256-GCM under `SESSION_KEY`, with the cookie name as associated data,
 | `spoticlean_session` | `/` | 30 days, renewed with the access token | access token, refresh token, expiry, granted scopes |
 | `spoticlean_login` | `/auth` | 10 minutes | PKCE verifier, `state` |
 
-What the user decides about a group (dismissed, promoted to duplicate, the
-copy to keep) belongs to the UI, which keeps it in the browser under the
-group's `key`.
+What the user decides about the groups belongs to the UI, which keeps it in
+the browser's `localStorage`, under one `spoticlean.choices` entry:
+
+| Field | Holds |
+| --- | --- |
+| `rule` | the default keep rule: `original`, `first` or `recent` |
+| `dismissed` | the keys of the duplicate groups marked as not duplicates |
+| `promoted` | the keys of the variant groups marked as duplicates |
+| `keep` | per group key, the ID of the track the user picked |
+
+The entry is validated when read: a field that does not parse falls back to
+its default, and storage that cannot be read or written leaves the defaults
+in place without failing the page. A key whose group the scan no longer finds
+has no effect. A new rule clears the picks in `keep`, which were made against
+the old one. The scan's result, the tab and the tracks just removed live only
+in memory: a reload scans again.
 
 ## Design decisions
 
@@ -235,6 +290,18 @@ group's `key`.
   the result over one connection, stores nothing, and cancels the work when
   the client leaves. The endpoint is a `GET` because a scan only reads, which
   is also what lets a browser `EventSource` call it.
+- **Review choices live in the browser, not on the server.** Storing them on
+  the server would give a stateless app its first store, for data that only
+  ever concerns one person in front of one browser. Keyed by the group's
+  stable `key`, they survive rescans and the removals that change a group's
+  tracks; the price is that another browser starts from the defaults.
+- **The UI checks every response against the API's schemas.** The `zod`
+  schemas are generated from the OpenAPI document the backend serves, and a
+  backend test fails when the committed copy is stale, so a DTO change reaches
+  the UI's types at compile time and a body that does not match fails loudly
+  at run time, instead of rendering half a group.
+- **Self-hosted fonts.** IBM Plex ships inside the UI's files, so the page
+  calls no third party, and works the same behind a proxy that blocks one.
 - **The scan's result is not paginated.** It is computed from one pass over
   the whole library and cannot be resumed at an offset without being stored;
   its size is bounded by the library itself.
@@ -324,3 +391,5 @@ group's `key`.
   and that have different ISRCs, are not matched.
 - A copy credited with a guest its twin omits is reported as a variant, not a
   duplicate.
+- Review choices are per browser: another browser, or cleared site data,
+  starts from the default rule with nothing dismissed, promoted or picked.
