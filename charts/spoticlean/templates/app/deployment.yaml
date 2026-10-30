@@ -1,0 +1,141 @@
+{{- include "spoticlean.caCertsValidate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spoticlean.fullname" . }}
+  labels:
+    {{- include "spoticlean.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+  revisionHistoryLimit: {{ .Values.app.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "spoticlean.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if not .Values.app.spotify.existingSecret.name }}
+        checksum/spotify: {{ include (print $.Template.BasePath "/app/secret/spotify.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if not .Values.app.session.existingSecret.name }}
+        checksum/session: {{ include (print $.Template.BasePath "/app/secret/session.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if include "spoticlean.caCertsGenerateSecret" . }}
+        checksum/ca-certs: {{ include (print $.Template.BasePath "/app/secret/ca-certs.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.app.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "spoticlean.selectorLabels" . | nindent 8 }}
+        {{- with .Values.app.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with (include "spoticlean.imagePullSecrets" . | fromYamlArray) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "spoticlean.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.app.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.app.podSecurityContext | nindent 8 }}
+      containers:
+        - name: spoticlean
+          image: {{ include "spoticlean.image" . | quote }}
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SPOTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spoticlean.spotifySecretName" . }}
+                  key: {{ include "spoticlean.spotifySecretKey" . }}
+            - name: SESSION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spoticlean.sessionSecretName" . }}
+                  key: {{ include "spoticlean.sessionSecretKey" . }}
+            - name: PUBLIC_URL
+              value: {{ include "spoticlean.publicUrl" . | quote }}
+            {{- with .Values.app.scan.concurrency }}
+            - name: SCAN_CONCURRENCY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.app.matching.durationTolerance }}
+            - name: DURATION_TOLERANCE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.app.log.filter }}
+            - name: LOG_FILTER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.app.log.format }}
+            - name: LOG_FORMAT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if include "spoticlean.caCertsEnabled" . }}
+            - name: SSL_CERT_FILE
+              value: {{ include "spoticlean.caCertsPath" . | quote }}
+            {{- end }}
+            {{- with .Values.app.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            {{- toYaml .Values.app.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            {{- toYaml .Values.app.probes.readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+          {{- if or (include "spoticlean.caCertsEnabled" .) .Values.app.extraVolumeMounts }}
+          volumeMounts:
+            {{- if include "spoticlean.caCertsEnabled" . }}
+            - name: ca-certs
+              mountPath: {{ include "spoticlean.caCertsPath" . | quote }}
+              subPath: {{ include "spoticlean.caCertsKey" . | quote }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.app.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+      {{- if or (include "spoticlean.caCertsEnabled" .) .Values.app.extraVolumes }}
+      volumes:
+        {{- if include "spoticlean.caCertsEnabled" . }}
+        - name: ca-certs
+          {{- if include "spoticlean.caCertsFromConfigMap" . }}
+          configMap:
+            name: {{ include "spoticlean.caCertsSecretName" . }}
+          {{- else }}
+          secret:
+            secretName: {{ include "spoticlean.caCertsSecretName" . }}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.app.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

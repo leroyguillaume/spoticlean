@@ -1,0 +1,28 @@
+# {{ template "chart.name" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+The chart deploys the spoticlean web app as one stateless Deployment, with a
+Service and an optional Ingress. See the [root README](../../README.md#deployment)
+for installing it and for the Spotify app it needs.
+
+## Secrets
+
+`SPOTIFY_CLIENT_ID` and `SESSION_KEY` come from Kubernetes Secrets. Point
+`app.spotify.existingSecret` and `app.session.existingSecret` at Secrets you
+manage (`name`, and `key` when the entry is named differently from the
+default); the chart then generates nothing. Otherwise `app.spotify.clientId`
+and `app.session.key` fill Secrets the chart generates; one of the two forms is
+required for each. Never commit a real value in a values file.
+
+## Public URL and ingress
+
+`PUBLIC_URL` is `app.publicUrl` when set, else `https://<app.ingress.host>`
+(`http://` when `app.ingress.tls.enabled` is false). The redirect URI to
+register in the Spotify developer dashboard is that origin followed by
+`/auth/callback`. The ingress class and the cert-manager issuer are set with
+`app.ingress.className` and `app.ingress.annotations`.
+
+{{ template "chart.valuesSection" . }}
