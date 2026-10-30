@@ -10,7 +10,6 @@
 </mask>
 <mask id="stripes" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="100">
 <rect width="160" height="100" fill="#fff"/>
-<rect x="200" y="0" width="-40" height="6.8" rx="1.05" fill="#000"/>
 <rect x="96" y="11.2" width="64" height="2.1" rx="1.05" fill="#000"/>
 <rect x="90" y="17.7" width="70" height="2.1" rx="1.05" fill="#000"/>
 <rect x="101" y="24.2" width="59" height="2.1" rx="1.05" fill="#000"/>
@@ -23,7 +22,6 @@
 <rect x="100" y="69.7" width="60" height="2.1" rx="1.05" fill="#000"/>
 <rect x="94" y="76.2" width="66" height="2.1" rx="1.05" fill="#000"/>
 <rect x="98" y="82.7" width="62" height="2.1" rx="1.05" fill="#000"/>
-<rect x="200" y="89.2" width="-40" height="10.8" rx="1.05" fill="#000"/>
 <rect x="111.06" y="6.75" width="48.94" height="4.5" fill="#000"/>
 <rect x="127.63" y="13.25" width="32.37" height="4.5" fill="#000"/>
 <rect x="127.7" y="19.75" width="32.3" height="4.5" fill="#000"/>

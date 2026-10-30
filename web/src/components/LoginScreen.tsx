@@ -28,7 +28,7 @@ export function LoginScreen({ message }: LoginScreenProps) {
             Se connecter avec Spotify
           </a>
           <p className={styles.note}>
-            Accès en lecture à ta bibliothèque. Rien n'est retiré de tes likes sans ta validation.
+            spoticlean lit tes titres likés et ne retire que ceux que tu valides.
           </p>
         </section>
         <section aria-label="Aperçu d'un groupe de doublons" className={styles.preview}>
