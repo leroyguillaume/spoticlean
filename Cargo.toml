@@ -5,6 +5,7 @@ edition = "2024"
 description = "Finds duplicates among your Spotify Liked Songs"
 authors = ["Guillaume Leroy <pro.guillaume.leroy@gmail.com>"]
 repository = "https://github.com/leroyguillaume/spoticlean"
+license = "MIT"
 readme = "README.md"
 
 [lints.rust]
