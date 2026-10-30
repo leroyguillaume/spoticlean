@@ -25,3 +25,10 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # @hey-api/openapi-ts drives the TypeScript compiler API, which
+      # TypeScript 7 (the native port) no longer ships: client generation
+      # fails with "Cannot read properties of undefined (reading 'AnyKeyword')".
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
