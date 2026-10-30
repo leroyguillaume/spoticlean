@@ -117,22 +117,22 @@ describe("ReviewScreen", () => {
   it("keeps the track the user picks, and remembers it", async () => {
     const { unmount } = renderReview([certain]);
     const radios = card("Marée haute").getAllByRole("radio");
-    expect(radios[0]).toBeChecked();
-    await userEvent.click(card("Marée haute").getByText("Grand Large (Remastered)"));
-    expect(card("Marée haute").getAllByRole("radio")[1]).toBeChecked();
+    expect(radios[1]).toBeChecked();
+    await userEvent.click(card("Marée haute").getByText("Grand Large", { selector: "span" }));
+    expect(card("Marée haute").getAllByRole("radio")[0]).toBeChecked();
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}").keep).toEqual({
-      tide: remaster.id,
+      tide: original.id,
     });
     unmount();
     renderReview([certain]);
-    expect(card("Marée haute").getAllByRole("radio")[1]).toBeChecked();
+    expect(card("Marée haute").getAllByRole("radio")[0]).toBeChecked();
   });
 
   it("applies the keep rule chosen", async () => {
     renderReview([certain]);
-    await userEvent.selectOptions(screen.getByLabelText("Titre à garder par défaut"), "first");
-    expect(card("Marée haute").getAllByRole("radio")[1]).toBeChecked();
-    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}").rule).toBe("first");
+    await userEvent.selectOptions(screen.getByLabelText("Titre à garder par défaut"), "original");
+    expect(card("Marée haute").getAllByRole("radio")[0]).toBeChecked();
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}").rule).toBe("original");
   });
 
   it("dismisses and promotes groups", async () => {
@@ -171,7 +171,7 @@ describe("ReviewScreen", () => {
     await userEvent.click(bar().getByRole("button", { name: "Confirmer le retrait" }));
 
     expect(await bar().findByText("2 titres retirés de tes likes.")).toBeInTheDocument();
-    expect(calls[0]?.body).toEqual({ trackIds: [remaster.id, dawnB.id] });
+    expect(calls[0]?.body).toEqual({ trackIds: [original.id, dawnB.id] });
     expect(screen.queryByRole("heading", { name: /^Marée haute/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Aucun doublon à retirer");
     await userEvent.click(bar().getByRole("button", { name: "Fermer" }));
@@ -260,7 +260,7 @@ describe("ReviewScreen", () => {
     expect(click).toHaveBeenCalledOnce();
     const csv = await createObjectURL.mock.calls[0]?.[0].text();
     expect(csv?.split("\r\n").filter(Boolean)).toHaveLength(3);
-    expect(csv).toContain(remaster.id);
+    expect(csv).toContain(original.id);
     expect(csv).toContain(dawnB.id);
   });
 });

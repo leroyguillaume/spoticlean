@@ -7,7 +7,7 @@ import { zKeepRule } from "./keep";
  * scan is kept but has no effect.
  */
 const zChoices = z.object({
-  rule: zKeepRule.catch("original"),
+  rule: zKeepRule.catch("remaster"),
   dismissed: z.array(z.string()).catch([]),
   promoted: z.array(z.string()).catch([]),
   keep: z.record(z.string(), z.string()).catch({}),
@@ -17,7 +17,7 @@ export type Choices = z.infer<typeof zChoices>;
 
 export const STORAGE_KEY = "spoticlean.choices";
 
-export const DEFAULT_CHOICES: Choices = { rule: "original", dismissed: [], promoted: [], keep: {} };
+export const DEFAULT_CHOICES: Choices = { rule: "remaster", dismissed: [], promoted: [], keep: {} };
 
 export function loadChoices(): Choices {
   try {
