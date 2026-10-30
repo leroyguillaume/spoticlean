@@ -1,0 +1,96 @@
+:root {
+  color-scheme: light;
+
+  --color-bg: #f6f5f1;
+  --color-surface: #ffffff;
+  --color-surface-muted: #faf9f6;
+  --color-border: #e3e1da;
+  --color-border-soft: #ecebe6;
+  --color-border-strong: #c9c6bd;
+  --color-ink: #1a1a18;
+  --color-body: #4a4843;
+  --color-muted: #5e5c55;
+  --color-faint: #b4b1a8;
+  --color-on-ink: #d9d7cf;
+  --color-accent: #1d4ed8;
+  --color-accent-ink: #1e3a8a;
+  --color-accent-soft: #f1f5ff;
+  --color-accent-line: #c7d6fb;
+  --color-danger: #b42318;
+  --color-danger-soft: #fef3f2;
+  --color-danger-line: #fecdca;
+  --color-danger-ink: #7a271a;
+  --color-track: #ecebe6;
+
+  --badge-certain-bg: #dbe6ff;
+  --badge-certain-fg: #1e3a8a;
+  --badge-probable-bg: #fde8cf;
+  --badge-probable-fg: #8a3b00;
+  --badge-variant-bg: #ecebe6;
+  --badge-variant-fg: #4a4843;
+  --badge-manual-bg: #e6e1f7;
+  --badge-manual-fg: #3f2e8c;
+
+  --version-bg: #f1f0ec;
+  --version-fg: #4a4843;
+  --version-label-bg: #fff4e5;
+  --version-label-fg: #7a3500;
+
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --gutter: clamp(16px, 4vw, 48px);
+  --shadow-card: 0 1px 2px rgba(26, 26, 24, 0.04), 0 12px 32px rgba(26, 26, 24, 0.06);
+  --touch-target: 44px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+a:hover {
+  color: var(--color-accent-ink);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/src/assets/logo.svg" alt="spoticlean logo" width="200">
+</p>
+
 # spoticlean
 
 A web app that finds the duplicates among your Spotify Liked Songs and removes
@@ -41,6 +45,8 @@ API and a web UI, not a Spotify client, and it keeps no data of its own. See
   Its client ID is what spoticlean needs; no client secret is used. A
   development-mode app only serves the Spotify accounts added to its *User
   Management* list, which is what decides who can log in.
+- [Node.js](https://nodejs.org/en/download) 26, the version pinned in
+  [web/.nvmrc](web/.nvmrc), with npm, to build the web UI outside Docker.
 - [Docker](https://docs.docker.com/get-started/get-docker/), to build the
   image.
 
@@ -65,7 +71,7 @@ wins).
 | `SESSION_KEY` | yes | — | Base64 of at least 64 random bytes; encrypts the session cookies, and changing it logs everyone out |
 | `PUBLIC_URL` | yes | — | Origin the browser reaches the app at, e.g. `https://spoticlean.example`; cookies are `Secure` when it is HTTPS |
 | `BIND_ADDR` | no | `0.0.0.0:8080` | Address the HTTP server listens on |
-| `STATIC_DIR` | no | — | Directory of the web UI, served for every path outside the API; without it, only the API is served |
+| `STATIC_DIR` | no | — (`/usr/share/spoticlean/web` in the image) | Directory of the web UI, served for every path outside the API; without it, only the API is served |
 | `SCAN_CONCURRENCY` | no | `4` | Pages of Liked Songs fetched at the same time, 1 to 16 |
 | `DURATION_TOLERANCE` | no | `10` | Largest duration gap, in seconds, between two copies of a song |
 | `LOG_FILTER` | no | `info` | [`tracing` filter directive](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html#directives), e.g. `spoticlean=debug` |
@@ -82,6 +88,18 @@ openssl rand -base64 64
 
 ### Usage
 
+Build the web UI into `web/dist`:
+
+```sh
+npm ci --prefix web
+```
+
+```sh
+npm run build --prefix web
+```
+
+Then start the server with it:
+
 ```sh
 export SPOTIFY_CLIENT_ID=<your-client-id>
 ```
@@ -91,17 +109,20 @@ export SESSION_KEY=<your-session-key>
 ```
 
 ```sh
-cargo run --release -- serve
+STATIC_DIR=web/dist cargo run --release -- serve
 ```
 
-Then log in at <http://127.0.0.1:8888/auth/login>: Spotify asks for read and
-modify access to your library, and sends you back to the app. Without
-`STATIC_DIR`, the app serves its API only; its reference, from which you can
-call it once logged in, is at <http://127.0.0.1:8888/docs>, and the OpenAPI
-document at <http://127.0.0.1:8888/openapi.json>.
+Open <http://127.0.0.1:8888> and log in: Spotify asks for read and modify
+access to your library, and sends you back to the app, which scans the
+library and lists the duplicate groups. For each group, pick the copy to keep
+(the default rule keeps the original album), mark the groups that are not
+duplicates, or promote a variant to a duplicate; then remove the other copies,
+or export them as CSV first. These choices are remembered by the browser
+between scans. *Se déconnecter* logs you out.
 
-To log out, call `DELETE /api/v1/session` from the reference, or clear the
-`spoticlean_session` cookie.
+Without `STATIC_DIR`, the app serves its API only. Its reference, from which
+you can call it once logged in, is at <http://127.0.0.1:8888/docs>, and the
+OpenAPI document at <http://127.0.0.1:8888/openapi.json>.
 
 ### Deployment
 
@@ -118,8 +139,8 @@ rather than on the command line:
 docker run --rm -p 8888:8080 -e SPOTIFY_CLIENT_ID -e SESSION_KEY -e PUBLIC_URL=http://127.0.0.1:8888 spoticlean
 ```
 
-The image runs `spoticlean serve` as a non-root user, listens on port 8080,
-and checks its own health with `spoticlean healthcheck`; `GET /healthz`
+The image runs `spoticlean serve` as a non-root user, serves the web UI from
+`/usr/share/spoticlean/web`, listens on port 8080, and checks its own health with `spoticlean healthcheck`; `GET /healthz`
 answers `200` for probes. Behind a TLS-terminating proxy, set `PUBLIC_URL` to
 the public HTTPS origin.
 

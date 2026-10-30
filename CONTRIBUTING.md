@@ -11,8 +11,10 @@ You need:
 - Rust via [rustup](https://rustup.rs); the toolchain pinned in
   [rust-toolchain.toml](rust-toolchain.toml) (with `rustfmt` and `clippy`) is
   installed automatically by the first `cargo` command.
+- [Node.js](https://nodejs.org/en/download) with npm, at the version pinned in
+  [web/.nvmrc](web/.nvmrc), for the web UI and its hooks.
 - [pre-commit](https://pre-commit.com/#install) 4.x. It builds the `actionlint`
-  hook with its own Go toolchain.
+  hook with its own Go toolchain, and the `biome-check` hook with Node.js.
 - [hadolint](https://github.com/hadolint/hadolint#install),
   [Trivy](https://trivy.dev/latest/getting-started/installation/),
   [Helm](https://helm.sh/docs/intro/install/) 4.x,
@@ -67,11 +69,54 @@ cargo install cargo-edit
 ```
 
 ```sh
+npm ci --prefix web
+```
+
+```sh
 pre-commit install
 ```
 
-`cargo test` and `pre-commit run --all-files` passing means the setup is good. See
-[README.md](README.md#getting-started) for running the project.
+`cargo test`, `npm test --prefix web` and `pre-commit run --all-files` passing
+means the setup is good. See [README.md](README.md#getting-started) for
+running the project.
+
+### Working on the web UI
+
+The UI lives in [`web/`](web/): React and TypeScript, built by Vite, linted
+and formatted by Biome, tested with Vitest. Its layout and state are described
+in [ARCHITECTURE.md](ARCHITECTURE.md#components).
+
+Spotify only sends the browser back to `http://127.0.0.1:8888/auth/callback`,
+so in development the Vite dev server takes that address, with hot reload, and
+forwards `/api`, `/auth`, `/docs` and `/openapi.json` to the backend, which
+moves to port 8889. The browser only ever talks to `127.0.0.1:8888`, so the
+cookies and the redirect URI work as in production. In one terminal, with
+`SPOTIFY_CLIENT_ID` and `SESSION_KEY` exported as in the
+[README](README.md#usage):
+
+```sh
+BIND_ADDR=127.0.0.1:8889 cargo run -- serve
+```
+
+In another:
+
+```sh
+npm run dev --prefix web
+```
+
+Then open <http://127.0.0.1:8888>. `PUBLIC_URL` keeps its default from
+[.cargo/config.toml](.cargo/config.toml), `http://127.0.0.1:8888`, which is
+now the dev server's address.
+
+The UI's client is generated from the backend's OpenAPI document, kept in
+[`web/openapi.json`](web/openapi.json): the API's types and their `zod`
+schemas land in `web/src/api/generated/`, which is never edited by hand. After
+changing a handler or a DTO, `cargo test` fails once and rewrites
+`web/openapi.json`; regenerate the client from it, then commit both:
+
+```sh
+npm run generate --prefix web
+```
 
 ## Running the tests
 
@@ -100,6 +145,23 @@ network, a Spotify account or credentials:
 - the API tests in [`src/api/tests.rs`](src/api/tests.rs) build the whole
   router over mocked `Library` and `Accounts`, and send it requests in
   process: login and callback, cookies, the scan's event stream, removals.
+
+The web UI's suite, also required, and a single file of it:
+
+```sh
+npm test --prefix web
+```
+
+```sh
+npm test --prefix web -- src/review/keep.test.ts
+```
+
+Its tests run in jsdom, next to the code they cover: the review logic (keep
+rules, persisted choices, filters, reasons, dates) on plain values, and the
+screens through what they render and how a user clicks them, with `fetch` and
+`EventSource` replaced by the fakes in
+[`web/src/test/fakes.ts`](web/src/test/fakes.ts). Their fixtures are invented
+tracks; never paste a real library into them.
 
 Nothing exercises the real login or the live API: try those by hand with your
 own Spotify app, as the [README](README.md#usage) describes.
@@ -136,7 +198,7 @@ pre-commit run <hook-id> --all-files
 | --- | --- | --- |
 | `trailing-whitespace`, `end-of-file-fixer` | whitespace and final newline | rewrites the files, re-run |
 | `check-yaml`, `check-toml` | files parse | fix the syntax |
-| `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | no large file, key or conflict marker committed | remove it |
+| `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | no large file (`web/package-lock.json` aside), key or conflict marker committed | remove it |
 | `yamllint` | YAML style, configured in [.yamllint.yaml](.yamllint.yaml) | fix the YAML |
 | `actionlint` | GitHub Actions workflows | fix the workflow |
 | `hadolint` | `Dockerfile` best practices, and ShellCheck on its `RUN` lines | fix the `Dockerfile` |
@@ -146,6 +208,9 @@ pre-commit run <hook-id> --all-files
 | `helm-kubeconform` | the rendered chart is valid Kubernetes | fix the template |
 | `trivy-chart` | `trivy config` misconfigurations in the rendered chart; [`.trivyignore`](.trivyignore) holds the two checks that do not apply to a chart (CPU limit, namespace) and [`.trivy`](.trivy/trusted-registries.json) the trusted registry | fix the chart |
 | `shellcheck` | shell scripts | fix the script |
+| `biome-check` | formatting and lint of the web UI, configured in [biome.json](biome.json); its version follows `@biomejs/biome` in [web/package.json](web/package.json) | rewrites what it can, re-run, then fix the lint |
+| `web-tsc` | `tsc --noEmit` on the web UI | fix the types |
+| `web-openapi-client` | `web/src/api/generated/` matches `web/openapi.json` | re-run, it regenerates the client |
 | `cargo-fmt` | `cargo fmt --check` | `cargo fmt` |
 | `cargo-clippy` | `cargo clippy -- -D warnings` | fix the lint |
 | `no-co-authors` | commit message has no co-author trailer | rewrite the message |
@@ -158,8 +223,8 @@ same pull request and say why.
 
 | Workflow | Triggers on | What it does | Reproduce locally |
 | --- | --- | --- | --- |
-| [`quality.yaml`](.github/workflows/quality.yaml) | every pull request, push to `main` | `pre-commit run --all-files`, then `cargo test` | `pre-commit run --all-files` and `cargo test` |
-| [`build.yaml`](.github/workflows/build.yaml) | pull requests and pushes to `main` touching the code or the image, manual, called by `release` | builds the image for `amd64` and `arm64`, each on its own runner, and fails on fixable `HIGH`/`CRITICAL` vulnerabilities in it; pushes it to GHCR only when called with `push` (by `release`, or by hand from `main` or a tag, with a version) | `docker build -t spoticlean .` and `trivy image --severity HIGH,CRITICAL --ignore-unfixed spoticlean` |
+| [`quality.yaml`](.github/workflows/quality.yaml) | every pull request, push to `main` | `pre-commit run --all-files`, `cargo test`, and the web UI's tests and build, in three jobs | `pre-commit run --all-files`, `cargo test`, `npm test --prefix web` and `npm run build --prefix web` |
+| [`build.yaml`](.github/workflows/build.yaml) | pull requests and pushes to `main` touching the code, the web UI or the image, manual, called by `release` | builds the image for `amd64` and `arm64`, each on its own runner, and fails on fixable `HIGH`/`CRITICAL` vulnerabilities in it; pushes it to GHCR only when called with `push` (by `release`, or by hand from `main` or a tag, with a version) | `docker build -t spoticlean .` and `trivy image --severity HIGH,CRITICAL --ignore-unfixed spoticlean` |
 | [`security.yaml`](.github/workflows/security.yaml) | every pull request, push to `main`, daily, manual | `trivy fs` for fixable `HIGH`/`CRITICAL` vulnerabilities and secrets; on the daily and manual runs, `trivy image` on the latest stable release's published image | `trivy fs .` |
 | [`release.yaml`](.github/workflows/release.yaml) | tag `v*` | refuses a tag that disagrees with `Cargo.toml` and `Cargo.lock`, pushes the multi-arch image through `build`, and creates the GitHub release with generated notes (none for a tag with a `-`, such as `-rc1`) | none |
 | [`chart.yaml`](.github/workflows/chart.yaml) | tag `chart-*`, manual from `main` with a version | refuses a tag that disagrees with `Chart.yaml` and the README's `helm install --version`, then lints, packages and pushes the chart to `oci://ghcr.io/leroyguillaume/charts` | `helm lint --strict -f charts/spoticlean/values-lint.yaml charts/spoticlean` |

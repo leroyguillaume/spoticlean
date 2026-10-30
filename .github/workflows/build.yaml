@@ -11,6 +11,7 @@ on:
       - rust-toolchain.toml
       - Dockerfile
       - .dockerignore
+      - web/**
       - .github/workflows/build.yaml
   pull_request:
     paths:
@@ -20,6 +21,7 @@ on:
       - rust-toolchain.toml
       - Dockerfile
       - .dockerignore
+      - web/**
       - .github/workflows/build.yaml
   workflow_dispatch:
     inputs:

@@ -1,0 +1,173 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.dismissed {
+  composes: card;
+  opacity: 0.7;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reason {
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.artist {
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.toggle {
+  min-height: var(--touch-target);
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.scroller {
+  overflow-x: auto;
+}
+
+.table {
+  min-width: 780px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 110px 170px minmax(0, 1fr) 110px 70px 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 0 14px;
+}
+
+.header {
+  composes: columns;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+
+.row {
+  composes: columns;
+  min-height: 52px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface);
+}
+
+.selectable {
+  composes: row;
+  cursor: pointer;
+}
+
+.kept {
+  composes: selectable;
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.kept .action {
+  color: var(--color-accent-ink);
+}
+
+.radio {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.version {
+  justify-self: start;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--version-label-bg);
+  color: var(--version-label-fg);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.original {
+  composes: version;
+  background: var(--version-bg);
+  color: var(--version-fg);
+}
+
+.album {
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.same {
+  color: var(--color-muted);
+}
+
+.differs {
+  color: var(--color-ink);
+}

@@ -768,3 +768,27 @@ async fn openapi_documents_every_operation() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+/// The UI generates its API client from this copy, so it must follow every
+/// change to the handlers. A stale copy is rewritten, and the test fails so
+/// that the new one gets reviewed and committed.
+#[tokio::test]
+async fn the_committed_openapi_document_is_current() {
+    let response = app(MockLibrary::new(), MockAccounts::new())
+        .oneshot(request(Method::GET, "/openapi.json", None))
+        .await
+        .unwrap();
+    let served = body_json(response).await;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("web/openapi.json");
+    let committed = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    if committed.as_ref() != Some(&served) {
+        let text = serde_json::to_string_pretty(&served).unwrap() + "\n";
+        std::fs::write(&path, text).unwrap();
+        panic!(
+            "{} was stale and has been rewritten: regenerate the UI's client with `npm run generate` in web/, then commit both",
+            path.display()
+        );
+    }
+}

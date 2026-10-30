@@ -1,0 +1,125 @@
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary {
+  composes: pill;
+  padding: 0 24px;
+  border: none;
+  background: var(--color-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-ink);
+  color: #ffffff;
+}
+
+.danger {
+  composes: primary;
+  background: var(--color-danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--color-danger-ink);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--color-accent-ink);
+}
+
+.alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--color-danger-line);
+  background: var(--color-danger-soft);
+  color: var(--color-danger-ink);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.detail {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.certain {
+  composes: badge;
+  background: var(--badge-certain-bg);
+  color: var(--badge-certain-fg);
+}
+
+.probable {
+  composes: badge;
+  background: var(--badge-probable-bg);
+  color: var(--badge-probable-fg);
+}
+
+.variant {
+  composes: badge;
+  background: var(--badge-variant-bg);
+  color: var(--badge-variant-fg);
+}
+
+.manual {
+  composes: badge;
+  background: var(--badge-manual-bg);
+  color: var(--badge-manual-fg);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
