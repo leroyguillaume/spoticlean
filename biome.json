@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/src/api/generated", "!**/openapi.json", "!**/dist", "!**/node_modules"]
+    "includes": [
+      "web/**",
+      "!web/src/api/generated",
+      "!web/openapi.json",
+      "!web/dist",
+      "!web/node_modules"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -26,7 +32,7 @@
   },
   "overrides": [
     {
-      "includes": ["**/src/logger.ts"],
+      "includes": ["web/src/logger.ts"],
       "linter": {
         "rules": {
           "suspicious": {

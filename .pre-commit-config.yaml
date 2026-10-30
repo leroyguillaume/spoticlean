@@ -45,8 +45,6 @@ repos:
     rev: v2.6.4
     hooks:
       - id: biome-check
-        args:
-          - --config-path=web
         files: ^web/
   - repo: local
     hooks:

@@ -208,7 +208,7 @@ pre-commit run <hook-id> --all-files
 | `helm-kubeconform` | the rendered chart is valid Kubernetes | fix the template |
 | `trivy-chart` | `trivy config` misconfigurations in the rendered chart; [`.trivyignore`](.trivyignore) holds the two checks that do not apply to a chart (CPU limit, namespace) and [`.trivy`](.trivy/trusted-registries.json) the trusted registry | fix the chart |
 | `shellcheck` | shell scripts | fix the script |
-| `biome-check` | formatting and lint of the web UI, configured in [web/biome.json](web/biome.json); its version follows `@biomejs/biome` in [web/package.json](web/package.json) | rewrites what it can, re-run, then fix the lint |
+| `biome-check` | formatting and lint of the web UI, configured in [biome.json](biome.json); its version follows `@biomejs/biome` in [web/package.json](web/package.json) | rewrites what it can, re-run, then fix the lint |
 | `web-tsc` | `tsc --noEmit` on the web UI | fix the types |
 | `web-openapi-client` | `web/src/api/generated/` matches `web/openapi.json` | re-run, it regenerates the client |
 | `cargo-fmt` | `cargo fmt --check` | `cargo fmt` |
