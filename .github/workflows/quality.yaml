@@ -37,6 +37,30 @@ jobs:
         with:
           version: v0.76.1
           cache: true
+      - name: install shellcheck
+        run: sudo apt-get install --yes --no-install-recommends shellcheck
+      - name: install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: v4.2.4
+      - name: install helm-docs
+        env:
+          HELM_DOCS_VERSION: 1.14.2
+          HELM_DOCS_SHA256: a8cf72ada34fad93285ba2a452b38bdc5bd52cc9a571236244ec31022928d6cc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/helm-docs.tgz" "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz"
+          echo "$HELM_DOCS_SHA256  $RUNNER_TEMP/helm-docs.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/helm-docs.tgz" -C "$RUNNER_TEMP" helm-docs
+          sudo install -m 0755 "$RUNNER_TEMP/helm-docs" /usr/local/bin/helm-docs
+      - name: install kubeconform
+        env:
+          KUBECONFORM_VERSION: v0.8.0
+          KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/kubeconform.tgz" "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/kubeconform.tgz" -C "$RUNNER_TEMP" kubeconform
+          sudo install -m 0755 "$RUNNER_TEMP/kubeconform" /usr/local/bin/kubeconform
       - name: install pre-commit
         run: pipx install pre-commit
       - name: run pre-commit

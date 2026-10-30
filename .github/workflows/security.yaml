@@ -32,3 +32,41 @@ jobs:
           exit-code: "1"
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+
+  trivy-image:
+    name: trivy image
+    # The published image is only scanned on the schedule and on demand: a
+    # pull request has no published image of its own, and `build` scans the
+    # one it builds before pushing it.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: find the latest stable release
+        id: release
+        run: |
+          version="$(git tag --list 'v*' | grep -v -e '-' | sort -V | tail -n 1 | sed 's/^v//' || true)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: log in to GHCR
+        if: steps.release.outputs.version != ''
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: scan the published image
+        if: steps.release.outputs.version != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}
+          cache: true
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true

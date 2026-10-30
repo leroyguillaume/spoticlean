@@ -22,13 +22,37 @@ on:
       - .dockerignore
       - .github/workflows/build.yaml
   workflow_dispatch:
+    inputs:
+      push:
+        description: Push the image to GHCR
+        type: boolean
+        default: false
+      version:
+        description: Version to tag the image with, without the leading v (required to push)
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      push:
+        description: Push the image to GHCR
+        type: boolean
+        default: false
+      version:
+        description: Version to tag the image with, without the leading v
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# Hardcoded: in a called run, github.workflow is the caller's name and would
+# put this workflow in the caller's group, cancelling the job waiting on it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   image:
@@ -42,17 +66,46 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     steps:
+      - name: check the push inputs
+        if: inputs.push
+        env:
+          VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "A push needs a version." >&2
+            exit 1
+          fi
+          case "$GITHUB_REF" in
+            refs/tags/* | "refs/heads/${DEFAULT_BRANCH}") ;;
+            *)
+              echo "Images are only pushed from a tag or from ${DEFAULT_BRANCH}." >&2
+              exit 1
+              ;;
+          esac
       - name: check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - name: compute the image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
       - name: build the image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           load: true
           tags: spoticlean:ci
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
       - name: scan the image
@@ -64,3 +117,81 @@ jobs:
           exit-code: "1"
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+      - name: log in to GHCR
+        if: inputs.push
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: push the scanned image by digest
+        id: push
+        if: inputs.push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: .
+          labels: ${{ steps.meta.outputs.labels }}
+          # A provenance attestation would turn the pushed digest into an
+          # index, which the manifest job cannot merge into a multi-arch one.
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+      - name: export the digest
+        if: inputs.push
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - name: upload the digest
+        if: inputs.push
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: manifest
+    if: inputs.push
+    needs:
+      - image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: download the digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+      - name: set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - name: compute the image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }}
+      - name: log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: create the multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+      - name: inspect the image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"

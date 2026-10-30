@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: version guard
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: derive the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          manifest="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          lock="$(grep -A1 '^name = "spoticlean"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          for committed in "$manifest" "$lock"; do
+            if [ "$committed" != "$version" ]; then
+              echo "Cargo.toml says ${manifest} and Cargo.lock says ${lock}, but the tag says ${version}." >&2
+              echo "Cut releases with scripts/release.sh so the two stay in step." >&2
+              exit 1
+            fi
+          done
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build
+    needs:
+      - guard
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build.yaml
+    with:
+      push: true
+      version: ${{ needs.guard.outputs.version }}
+
+  github-release:
+    name: GitHub release
+    # A pre-release tag publishes the image and stops there.
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs:
+      - build
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          previous="$(git tag --list 'v*' | grep -v -e '-' | sort -V | grep -x -B1 "$TAG" | head -n 1)"
+          if [ "$previous" = "$TAG" ]; then
+            previous=""
+          fi
+          args=(--generate-notes --verify-tag)
+          if [ -n "$previous" ]; then
+            args+=(--notes-start-tag "$previous")
+          fi
+          gh release create "$TAG" "${args[@]}"
