@@ -1,4 +1,4 @@
-FROM node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47efb289f3b43f9c0450a25225ae0db5d AS web
+FROM node:26.12.0-trixie-slim@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11 AS web
 WORKDIR /usr/local/src/spoticlean/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
