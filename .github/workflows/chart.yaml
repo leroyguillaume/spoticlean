@@ -1,0 +1,77 @@
+name: chart
+
+on:
+  push:
+    tags:
+      - chart-*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Chart version to publish (must match Chart.yaml)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: derive the version from the tag
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/chart-*) version="${GITHUB_REF_NAME#chart-}" ;;
+            "refs/heads/${DEFAULT_BRANCH}") version="$INPUT_VERSION" ;;
+            *)
+              echo "The chart is only published from a chart-* tag or from ${DEFAULT_BRANCH}." >&2
+              exit 1
+              ;;
+          esac
+          committed="$(sed -n 's/^version: *//p' charts/spoticlean/Chart.yaml)"
+          if [ "$committed" != "$version" ]; then
+            echo "Chart.yaml says ${committed} but the tag says ${version}." >&2
+            echo "Cut releases with scripts/release.sh --chart so the two stay in step." >&2
+            exit 1
+          fi
+          if [[ "$version" != *-* ]]; then
+            documented="$(sed -nE 's/.*helm install .* --version ([^ ]+).*/\1/p' README.md | head -n 1)"
+            if [ "$documented" != "$version" ]; then
+              echo "README.md installs chart ${documented} but the tag says ${version}." >&2
+              echo "Cut releases with scripts/release.sh --chart so the two stay in step." >&2
+              exit 1
+            fi
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: v4.2.4
+      - name: lint the chart
+        run: helm lint --strict -f charts/spoticlean/values-lint.yaml charts/spoticlean
+      - name: package the chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: helm package charts/spoticlean --version "$VERSION" --destination "$RUNNER_TEMP/chart"
+      - name: log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: push the chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: helm push "$RUNNER_TEMP/chart/spoticlean-${VERSION}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"

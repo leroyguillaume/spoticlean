@@ -23,6 +23,42 @@ flowchart LR
 The [`Dockerfile`](Dockerfile) builds a distroless image that runs the one
 binary as UID 65532.
 
+## Deployment
+
+The [Helm chart](charts/spoticlean/README.md) runs the image as one stateless
+Deployment behind a Service and an optional Ingress; the cluster's ingress
+controller terminates TLS.
+
+```mermaid
+flowchart LR
+    browser["Browser"] -->|"HTTPS"| ingress["Ingress"]
+    ingress -->|"HTTP, port 80"| service["Service"]
+    service -->|"HTTP, port 8080"| pods["Deployment: spoticlean pods"]
+    secrets[("Secrets: SPOTIFY_CLIENT_ID, SESSION_KEY")] -.->|"env"| pods
+    pods -->|"HTTPS"| spotify["accounts.spotify.com, api.spotify.com"]
+```
+
+- **Replicas share nothing but the session key.** Sessions live in the
+  cookie, so a replica count above one needs no sticky routing and no store;
+  every replica reads the same `SESSION_KEY`.
+- **Credentials come from Secrets.** The client ID and the session key are read
+  from Secrets through `secretKeyRef`, which can be Secrets the chart does not
+  own, so a GitOps repository never holds them. The chart can also generate
+  them from values, for a quick install.
+- **`PUBLIC_URL` follows the ingress.** It is the explicit `app.publicUrl`, else
+  the origin of the ingress host, `https` unless TLS is off, so the redirect URI
+  and the `Secure` cookie flag agree with how the browser reaches the app. A
+  TLS-terminating proxy the chart does not know about needs `app.publicUrl`.
+- **The pod is locked down to match the image.** It runs as UID and GID 65532
+  with a read-only root filesystem, no capabilities and no service-account
+  token, since the app writes nothing and never calls the Kubernetes API.
+- **Probes hit `GET /healthz`**, which touches neither Spotify nor any state.
+  On `SIGTERM` the server drains in-flight requests within the pod's
+  termination grace period.
+- **Trust anchors are overridable.** Outbound TLS goes to Spotify only; a
+  private or corporate CA bundle mounts from a Secret or ConfigMap and is
+  pointed at by `SSL_CERT_FILE`.
+
 ## Components
 
 - **[`src/main.rs`](src/main.rs)** parses the configuration, sets up logging,

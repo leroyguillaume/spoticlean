@@ -1,0 +1,6 @@
+.DS_Store
+.git/
+*.swp
+*.tmp
+values-lint.yaml
+README.md.gotmpl

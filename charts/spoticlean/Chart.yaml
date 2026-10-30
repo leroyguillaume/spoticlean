@@ -1,0 +1,15 @@
+apiVersion: v2
+name: spoticlean
+description: A web app that finds the duplicates among your Spotify Liked Songs and removes the ones you do not want
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/leroyguillaume/spoticlean
+sources:
+  - https://github.com/leroyguillaume/spoticlean
+maintainers:
+  - name: Guillaume Leroy
+    email: pro.guillaume.leroy@gmail.com
+annotations:
+  org.opencontainers.image.licenses: MIT

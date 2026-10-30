@@ -13,9 +13,16 @@ You need:
   installed automatically by the first `cargo` command.
 - [pre-commit](https://pre-commit.com/#install) 4.x. It builds the `actionlint`
   hook with its own Go toolchain.
-- [hadolint](https://github.com/hadolint/hadolint#install) and
-  [Trivy](https://trivy.dev/latest/getting-started/installation/), which the
-  `Dockerfile` hooks call from your `PATH`.
+- [hadolint](https://github.com/hadolint/hadolint#install),
+  [Trivy](https://trivy.dev/latest/getting-started/installation/),
+  [Helm](https://helm.sh/docs/intro/install/) 4.x,
+  [helm-docs](https://github.com/norwoodj/helm-docs#installation) 1.14,
+  [kubeconform](https://github.com/yannh/kubeconform#installation) and
+  [ShellCheck](https://github.com/koalaman/shellcheck#installing), which the
+  `Dockerfile`, chart and script hooks call from your `PATH`.
+- [cargo-edit](https://github.com/killercup/cargo-edit#installation) and
+  [jq](https://jqlang.org/download/), only to run
+  [`scripts/release.sh`](scripts/release.sh).
 - [Docker](https://docs.docker.com/get-started/get-docker/), to build the
   image.
 
@@ -34,7 +41,7 @@ uv tool install pre-commit
 **macOS**
 
 ```sh
-brew install hadolint trivy
+brew install hadolint trivy helm helm-docs kubeconform shellcheck jq cargo-edit
 ```
 
 **Linux**
@@ -51,11 +58,19 @@ sudo chmod +x /usr/local/bin/hadolint
 curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.76.1
 ```
 
+Helm, helm-docs, kubeconform and ShellCheck ship static binaries on their
+release pages, linked above; ShellCheck and jq are also in most distributions'
+package manager, and cargo-edit installs with:
+
+```sh
+cargo install cargo-edit
+```
+
 ```sh
 pre-commit install
 ```
 
-`cargo test` passing means the setup is good. See
+`cargo test` and `pre-commit run --all-files` passing means the setup is good. See
 [README.md](README.md#getting-started) for running the project.
 
 ## Running the tests
@@ -95,6 +110,14 @@ duplicate-detection change comes with a test in
 [`src/matching/normalize.rs`](src/matching/normalize.rs) showing the titles
 it now groups or keeps apart.
 
+The chart has no test suite of its own: `helm-lint`, `kubeconform` and the
+`trivy-chart` scan, run by pre-commit on the chart rendered with the
+placeholders in
+[`charts/spoticlean/values-lint.yaml`](charts/spoticlean/values-lint.yaml),
+are its checks. A new chart value comes with its `# --` annotation in
+[`values.yaml`](charts/spoticlean/values.yaml), and `helm-docs` regenerates the
+chart's README from it.
+
 ## Pre-commit hooks
 
 `pre-commit install` sets up the hooks; they must pass before a commit is
@@ -118,6 +141,11 @@ pre-commit run <hook-id> --all-files
 | `actionlint` | GitHub Actions workflows | fix the workflow |
 | `hadolint` | `Dockerfile` best practices, and ShellCheck on its `RUN` lines | fix the `Dockerfile` |
 | `trivy-dockerfile` | `trivy config` misconfigurations in the `Dockerfile` | fix the `Dockerfile` |
+| `helm-docs` | the chart's README matches `values.yaml` and its [template](charts/spoticlean/README.md.gotmpl) | re-run, it rewrites the README |
+| `helm-lint` | `helm lint --strict` on the chart | fix the chart |
+| `helm-kubeconform` | the rendered chart is valid Kubernetes | fix the template |
+| `trivy-chart` | `trivy config` misconfigurations in the rendered chart; [`.trivyignore`](.trivyignore) holds the two checks that do not apply to a chart (CPU limit, namespace) and [`.trivy`](.trivy/trusted-registries.json) the trusted registry | fix the chart |
+| `shellcheck` | shell scripts | fix the script |
 | `cargo-fmt` | `cargo fmt --check` | `cargo fmt` |
 | `cargo-clippy` | `cargo clippy -- -D warnings` | fix the lint |
 | `no-co-authors` | commit message has no co-author trailer | rewrite the message |
@@ -131,11 +159,15 @@ same pull request and say why.
 | Workflow | Triggers on | What it does | Reproduce locally |
 | --- | --- | --- | --- |
 | [`quality.yaml`](.github/workflows/quality.yaml) | every pull request, push to `main` | `pre-commit run --all-files`, then `cargo test` | `pre-commit run --all-files` and `cargo test` |
-| [`build.yaml`](.github/workflows/build.yaml) | pull requests and pushes to `main` touching the code or the image, manual | builds the image for `amd64` and `arm64`, each on its own runner, and fails on fixable `HIGH`/`CRITICAL` vulnerabilities in it; pushes nothing | `docker build -t spoticlean .` and `trivy image --severity HIGH,CRITICAL --ignore-unfixed spoticlean` |
-| [`security.yaml`](.github/workflows/security.yaml) | every pull request, push to `main`, daily, manual | `trivy fs` for fixable `HIGH`/`CRITICAL` vulnerabilities and secrets | `trivy fs .` |
+| [`build.yaml`](.github/workflows/build.yaml) | pull requests and pushes to `main` touching the code or the image, manual, called by `release` | builds the image for `amd64` and `arm64`, each on its own runner, and fails on fixable `HIGH`/`CRITICAL` vulnerabilities in it; pushes it to GHCR only when called with `push` (by `release`, or by hand from `main` or a tag, with a version) | `docker build -t spoticlean .` and `trivy image --severity HIGH,CRITICAL --ignore-unfixed spoticlean` |
+| [`security.yaml`](.github/workflows/security.yaml) | every pull request, push to `main`, daily, manual | `trivy fs` for fixable `HIGH`/`CRITICAL` vulnerabilities and secrets; on the daily and manual runs, `trivy image` on the latest stable release's published image | `trivy fs .` |
+| [`release.yaml`](.github/workflows/release.yaml) | tag `v*` | refuses a tag that disagrees with `Cargo.toml` and `Cargo.lock`, pushes the multi-arch image through `build`, and creates the GitHub release with generated notes (none for a tag with a `-`, such as `-rc1`) | none |
+| [`chart.yaml`](.github/workflows/chart.yaml) | tag `chart-*`, manual from `main` with a version | refuses a tag that disagrees with `Chart.yaml` and the README's `helm install --version`, then lints, packages and pushes the chart to `oci://ghcr.io/leroyguillaume/charts` | `helm lint --strict -f charts/spoticlean/values-lint.yaml charts/spoticlean` |
 
 `quality` and `security` are required to merge; `build` only runs when its
-inputs change, so it is not a required check. No secret is needed.
+inputs change, so it is not a required check. No secret is needed: publishing
+uses the workflow's own `GITHUB_TOKEN` with `packages: write`, granted only to
+the jobs that push, and never on a pull request.
 
 ## Submitting a change
 
@@ -145,3 +177,33 @@ subjects are lowercase and imperative, like those in `git log --oneline`.
 Update the documentation in the same pull request. Give the pull request one
 changelog label from [.github/release.yaml](.github/release.yaml) (`feature`,
 `fix`, `chore`, ...), plus `breaking` when it breaks something.
+
+## Releasing
+
+The application and the chart are released independently, only with
+[`scripts/release.sh`](scripts/release.sh), which refuses a dirty tree, a
+branch that is not `main` or is behind `origin`, an existing tag and an
+`appVersion` that has no `v*` tag. It bumps the version, regenerates what
+derives from it, commits, tags, and asks before pushing: pushing the tag is
+what publishes, and declining leaves the commit and the tag local.
+
+```sh
+scripts/release.sh 0.2.0
+```
+
+That bumps `Cargo.toml` and `Cargo.lock`, commits `release 0.2.0` and tags
+`v0.2.0`; [`release.yaml`](.github/workflows/release.yaml) then publishes the
+image `ghcr.io/leroyguillaume/spoticlean:0.2.0` and the GitHub release. A
+version with a hyphen (`0.3.0-rc1`) publishes the image and no release page.
+
+```sh
+scripts/release.sh --chart 0.2.0
+```
+
+That sets the chart's `version` and, to the latest `v*` tag unless
+`--app-version` says otherwise, its `appVersion`, regenerates the chart's
+README, updates the `--version` of the install command in the root README (a
+stable version only), commits `release chart 0.2.0` and tags `chart-0.2.0`;
+[`chart.yaml`](.github/workflows/chart.yaml) then pushes the chart. The image
+the chart deploys is the one tagged with its `appVersion`, so release the
+application first. `--dry-run` prints what would happen and changes nothing.

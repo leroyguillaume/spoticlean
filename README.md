@@ -123,6 +123,53 @@ and checks its own health with `spoticlean healthcheck`; `GET /healthz`
 answers `200` for probes. Behind a TLS-terminating proxy, set `PUBLIC_URL` to
 the public HTTPS origin.
 
+#### Kubernetes
+
+The [Helm chart](charts/spoticlean/README.md) deploys the image as one
+stateless Deployment with a Service and an optional Ingress. It needs
+[Helm](https://helm.sh/docs/intro/install/) 3 or 4 and `kubectl` pointed at a
+cluster.
+
+Create the namespace, then a Secret holding the client ID and the session key
+(keep the key: a new one logs everyone out):
+
+```sh
+kubectl create namespace spoticlean
+```
+
+```sh
+kubectl --namespace spoticlean create secret generic spoticlean --from-literal=SPOTIFY_CLIENT_ID=<your-client-id> --from-literal=SESSION_KEY="$(openssl rand -base64 64 | tr -d '\n')"
+```
+
+Describe the deployment in a `values.yaml`; `PUBLIC_URL` is derived from the
+ingress host, here `https://spoticlean.example`. The ingress class and the
+certificate issuer are yours to name through the annotations:
+
+```yaml
+app:
+  spotify:
+    existingSecret:
+      name: spoticlean
+  session:
+    existingSecret:
+      name: spoticlean
+  ingress:
+    enabled: true
+    className: <ingress-class>
+    host: spoticlean.example
+    annotations:
+      cert-manager.io/cluster-issuer: <cluster-issuer>
+```
+
+```sh
+helm install spoticlean oci://ghcr.io/leroyguillaume/charts/spoticlean --version 0.1.0 --namespace spoticlean -f values.yaml
+```
+
+Then register `https://spoticlean.example/auth/callback` as a redirect URI in
+the Spotify dashboard. The chart's [README](charts/spoticlean/README.md) lists
+every value, among them the TLS settings, resources, extra environment
+variables and CA certificates.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

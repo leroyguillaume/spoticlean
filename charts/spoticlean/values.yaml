@@ -1,0 +1,148 @@
+global:
+  # -- Secrets used to pull the image from a private registry, as a list of `{name: <secret>}` objects. Overridable per component by setting the same key in its block.
+  imagePullSecrets: []
+
+app:
+  # -- (string) Overrides the chart name in resource names and labels.
+  nameOverride: ~
+  # -- (string) Overrides the full name of the resources.
+  fullnameOverride: ~
+  # -- Number of replicas. The server is stateless and sessions live in an encrypted cookie, so any number works as long as every replica shares the session key.
+  replicaCount: 1
+  # -- Number of old ReplicaSets the Deployment keeps for rollback.
+  revisionHistoryLimit: 0
+  image:
+    # -- Image repository.
+    repository: ghcr.io/leroyguillaume/spoticlean
+    # -- (string) Image tag. Defaults to the chart's `appVersion`.
+    tag: ~
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- (list) Image pull secrets of this component. Unset, `global.imagePullSecrets` applies.
+  imagePullSecrets: ~
+  spotify:
+    # -- (string) Client ID of the Spotify app, stored in a generated Secret. Ignored when `existingSecret.name` is set. Not a secret by itself, but kept with the credentials.
+    clientId: ~
+    existingSecret:
+      # -- (string) Name of a pre-existing Secret holding the client ID. Set, it takes precedence over `clientId`.
+      name: ~
+      # -- Key in that Secret holding the client ID.
+      key: SPOTIFY_CLIENT_ID
+  session:
+    # -- (string) Base64 of at least 64 random bytes (`openssl rand -base64 64`), stored in a generated Secret. Ignored when `existingSecret.name` is set. Changing it logs everyone out.
+    key: ~
+    existingSecret:
+      # -- (string) Name of a pre-existing Secret holding the session key. Set, it takes precedence over `key`.
+      name: ~
+      # -- Key in that Secret holding the session key.
+      key: SESSION_KEY
+  # -- (string) Origin the browser reaches the app at, for example `https://spoticlean.example`. Unset, it is derived from `ingress.host` and `ingress.tls.enabled`. The Spotify redirect URI is this value followed by `/auth/callback`.
+  publicUrl: ~
+  scan:
+    # -- (int) Pages of Liked Songs fetched at the same time, 1 to 16 (`SCAN_CONCURRENCY`). Unset, the application default applies.
+    concurrency: ~
+  matching:
+    # -- (int) Largest duration gap, in seconds, between two copies of a song (`DURATION_TOLERANCE`). Unset, the application default applies.
+    durationTolerance: ~
+  log:
+    # -- (string) `tracing` filter directive (`LOG_FILTER`), for example `spoticlean=debug`. Unset, the application default applies.
+    filter: ~
+    # -- (string) Log format on stderr, `text` or `json` (`LOG_FORMAT`). Unset, the application default applies.
+    format: ~
+  # -- Extra CA certificates to trust for outbound TLS connections to Spotify, mounted at the path `SSL_CERT_FILE` points to. The bundle replaces the system roots the application would otherwise load, so it must hold every root needed to reach `accounts.spotify.com` and `api.spotify.com`.
+  caCerts:
+    # -- (string) Inline PEM bundle, stored in a Secret and mounted. Ignored when `existing.name` is set.
+    inline: ~
+    # -- Mount the PEM bundle from a resource you already manage, instead of `inline`. Takes precedence over `inline` when `name` is set.
+    existing:
+      # -- Kind of the resource, `ConfigMap` or `Secret`.
+      kind: ConfigMap
+      # -- (string) Name of the resource. Set, the bundle is mounted from it instead of a generated Secret.
+      name: ~
+      # -- Key in the resource holding the PEM bundle (also the mounted file name).
+      key: ca-certificates.crt
+  # -- (list) Extra environment variables for the container, as Kubernetes `EnvVar` objects.
+  extraEnv: []
+  # -- (list) Extra volumes for the pod.
+  extraVolumes: []
+  # -- (list) Extra volume mounts for the container.
+  extraVolumeMounts: []
+  serviceAccount:
+    # -- Create a ServiceAccount for the pod.
+    create: true
+    # -- (string) Name of the ServiceAccount. Defaults to the full name when created, `default` otherwise.
+    name: ~
+    # -- (object) Annotations on the ServiceAccount.
+    annotations: {}
+  service:
+    # -- Service type.
+    type: ClusterIP
+    # -- Port the Service exposes.
+    port: 80
+    # -- (object) Annotations on the Service.
+    annotations: {}
+  ingress:
+    # -- Create an Ingress.
+    enabled: false
+    # -- (string) Ingress class name. Unset, the cluster's default class applies.
+    className: ~
+    # -- (string) Host the app is served at. Also derives `publicUrl` when that is unset.
+    host: ~
+    # -- Path routed to the app.
+    path: /
+    # -- Path type of that path.
+    pathType: Prefix
+    # -- (object) Annotations on the Ingress, for example `cert-manager.io/cluster-issuer` or controller settings.
+    annotations: {}
+    tls:
+      # -- Serve the host over TLS. It also makes the derived `publicUrl` HTTPS, which makes the cookies `Secure`.
+      enabled: true
+      # -- (string) Name of the Secret holding the certificate. Defaults to `<fullname>-tls`, which cert-manager fills when the annotations ask for it.
+      secretName: ~
+  probes:
+    liveness:
+      # -- Seconds before the liveness probe starts.
+      initialDelaySeconds: 5
+      # -- Seconds between liveness probes.
+      periodSeconds: 10
+    readiness:
+      # -- Seconds before the readiness probe starts.
+      initialDelaySeconds: 2
+      # -- Seconds between readiness probes.
+      periodSeconds: 5
+  # -- Seconds the pod gets to finish in-flight requests after `SIGTERM`.
+  terminationGracePeriodSeconds: 30
+  # -- Resource requests and limits. No CPU limit: it only throttles.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+      ephemeral-storage: 64Mi
+    limits:
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+  # -- Pod-level security context.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level security context.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  # -- (object) Annotations on the pod.
+  podAnnotations: {}
+  # -- (object) Labels on the pod.
+  podLabels: {}
+  # -- (object) Node selector of the pod.
+  nodeSelector: {}
+  # -- (list) Tolerations of the pod.
+  tolerations: []
+  # -- (object) Affinity of the pod.
+  affinity: {}

@@ -1,0 +1,8 @@
+# Placeholders for the values the chart requires, used by the lint, template
+# and scan hooks only. Never packaged (see .helmignore).
+app:
+  spotify:
+    clientId: lint-client-id
+  session:
+    key: lint-session-key
+  publicUrl: https://spoticlean.example

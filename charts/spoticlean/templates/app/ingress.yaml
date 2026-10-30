@@ -1,0 +1,33 @@
+{{- if .Values.app.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "spoticlean.fullname" . }}
+  labels:
+    {{- include "spoticlean.labels" . | nindent 4 }}
+  {{- with .Values.app.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.app.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.app.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ required "app.ingress.host is required when the ingress is enabled" .Values.app.ingress.host | quote }}
+      secretName: {{ default (printf "%s-tls" (include "spoticlean.fullname" .)) .Values.app.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ required "app.ingress.host is required when the ingress is enabled" .Values.app.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.app.ingress.path }}
+            pathType: {{ .Values.app.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "spoticlean.fullname" . }}
+                port:
+                  name: http
+{{- end }}

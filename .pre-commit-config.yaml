@@ -11,6 +11,7 @@ repos:
       - id: check-yaml
         args:
           - --allow-multiple-documents
+        exclude: ^charts/[^/]+/templates/
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: detect-private-key
@@ -23,6 +24,8 @@ repos:
         # ignored without this — the hook passes anyway.
         args:
           - --strict
+        # A Helm template is Go templating, not YAML, until it is rendered.
+        exclude: ^charts/[^/]+/templates/
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
@@ -31,6 +34,12 @@ repos:
     rev: v2.15.1
     hooks:
       - id: hadolint
+  - repo: https://github.com/norwoodj/helm-docs
+    rev: v1.14.2
+    hooks:
+      - id: helm-docs
+        args:
+          - --chart-search-root=charts
   - repo: local
     hooks:
       - id: no-co-authors
@@ -61,3 +70,27 @@ repos:
         language: system
         pass_filenames: false
         files: ^Dockerfile$
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck
+        language: system
+        types:
+          - shell
+      - id: helm-lint
+        name: helm lint
+        entry: helm lint --strict -f charts/spoticlean/values-lint.yaml charts/spoticlean
+        language: system
+        pass_filenames: false
+        files: ^charts/spoticlean/
+      - id: helm-kubeconform
+        name: kubeconform (rendered chart)
+        entry: bash -c 'helm template spoticlean charts/spoticlean -f charts/spoticlean/values-lint.yaml --set app.ingress.enabled=true --set app.ingress.host=spoticlean.example | kubeconform -strict -summary -kubernetes-version 1.31.0'
+        language: system
+        pass_filenames: false
+        files: ^charts/spoticlean/
+      - id: trivy-chart
+        name: trivy config (chart)
+        entry: trivy config --exit-code 1 --config-data .trivy --helm-values charts/spoticlean/values-lint.yaml charts/spoticlean
+        language: system
+        pass_filenames: false
+        files: ^(charts/spoticlean/|\.trivy/|\.trivyignore$)
