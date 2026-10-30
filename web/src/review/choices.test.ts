@@ -42,7 +42,21 @@ describe("persisted choices", () => {
       STORAGE_KEY,
       JSON.stringify({ rule: "loudest", dismissed: ["a"], promoted: "b", keep: { c: 3 } }),
     );
-    expect(loadChoices()).toEqual({ rule: "original", dismissed: ["a"], promoted: [], keep: {} });
+    expect(loadChoices()).toEqual({ rule: "remaster", dismissed: ["a"], promoted: [], keep: {} });
+  });
+
+  it("default to the remaster rule when the stored rule is invalid or absent", () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ dismissed: [] }));
+    expect(loadChoices().rule).toBe("remaster");
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ rule: "loudest" }));
+    expect(loadChoices().rule).toBe("remaster");
+  });
+
+  it("preserve a stored existing rule", () => {
+    for (const rule of ["original", "first", "recent"] as const) {
+      saveChoices(setRule(DEFAULT_CHOICES, rule));
+      expect(loadChoices().rule).toBe(rule);
+    }
   });
 
   it("work without storage", () => {

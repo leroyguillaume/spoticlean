@@ -115,7 +115,7 @@ STATIC_DIR=web/dist cargo run --release -- serve
 Open <http://127.0.0.1:8888> and log in: Spotify asks for read and modify
 access to your library, and sends you back to the app, which scans the
 library and lists the duplicate groups. For each group, pick the copy to keep
-(the default rule keeps the original album), mark the groups that are not
+(the default rule keeps the most recent remaster, or the original album when there is none), mark the groups that are not
 duplicates, or promote a variant to a duplicate; then remove the other copies,
 or export them as CSV first. These choices are remembered by the browser
 between scans. *Se déconnecter* logs you out.

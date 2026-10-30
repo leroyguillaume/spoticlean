@@ -173,9 +173,13 @@ scan's result:
   a variant the user promoted;
 - in each duplicate group, the track kept is the user's pick for that group
   when it is still in it, otherwise the one the keep rule chooses: the
-  earliest release, the first liked, or the latest release, ties going to the
-  earliest like (the latest, for the latest release), and a track without a
-  release date never chosen;
+  most recent remaster, the earliest release, the first liked, or the latest
+  release. The remaster rule considers the tracks whose version label or
+  album mentions a remaster, ranks them by the latest year found there (a
+  remaster without a year comes last) and breaks ties like the earliest
+  release, which it also applies to the whole group when no track is a
+  remaster. Ties go to the earliest like (the latest, for the latest
+  release), and a track without a release date is never chosen;
 - the tracks marked for removal are every other track of the duplicate
   groups, once each, since a track can sit in a duplicate group and in a
   variant group.
@@ -261,7 +265,7 @@ the browser's `localStorage`, under one `spoticlean.choices` entry:
 
 | Field | Holds |
 | --- | --- |
-| `rule` | the default keep rule: `original`, `first` or `recent` |
+| `rule` | the default keep rule: `remaster` (the default), `original`, `first` or `recent` |
 | `dismissed` | the keys of the duplicate groups marked as not duplicates |
 | `promoted` | the keys of the variant groups marked as duplicates |
 | `keep` | per group key, the ID of the track the user picked |

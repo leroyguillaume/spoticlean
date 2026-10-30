@@ -28,9 +28,9 @@ const counts = (choices = DEFAULT_CHOICES) => {
 describe("reviewGroups", () => {
   it("applies the default rule", () => {
     const [reviewed] = reviewGroups([certain], DEFAULT_CHOICES, new Set());
-    expect(reviewed?.keepId).toBe(first.id);
+    expect(reviewed?.keepId).toBe(remaster.id);
     expect(reviewed?.title).toBe("Marée haute");
-    expect(tracksToRemove(reviewGroups([certain], DEFAULT_CHOICES, new Set()))).toEqual([remaster]);
+    expect(tracksToRemove(reviewGroups([certain], DEFAULT_CHOICES, new Set()))).toEqual([first]);
   });
 
   it("lets a pick override the rule", () => {
@@ -40,7 +40,7 @@ describe("reviewGroups", () => {
 
   it("ignores a pick naming a track that is gone", () => {
     const choices = setKeep(DEFAULT_CHOICES, "certain", "gone");
-    expect(reviewGroups([certain], choices, new Set())[0]?.keepId).toBe(first.id);
+    expect(reviewGroups([certain], choices, new Set())[0]?.keepId).toBe(remaster.id);
   });
 
   it("ignores choices about groups the scan did not find", () => {
@@ -62,7 +62,7 @@ describe("reviewGroups", () => {
       ignored: 1,
     });
     const reviewed = reviewGroups(groups, choices, new Set());
-    expect(tracksToRemove(reviewed)).toEqual([remaster]);
+    expect(tracksToRemove(reviewed)).toEqual([first]);
   });
 
   it("turns a promoted variant into a manual duplicate", () => {
@@ -89,7 +89,7 @@ describe("reviewGroups", () => {
   it("lists a track marked twice once", () => {
     const choices = setKeep(setPromoted(DEFAULT_CHOICES, "variant", true), "variant", live.id);
     const marked = tracksToRemove(reviewGroups([certain, variant], choices, new Set()));
-    expect(marked.map((t) => t.id)).toEqual([remaster.id, first.id]);
+    expect(marked.map((t) => t.id)).toEqual([first.id]);
   });
 
   it("leaves out removed tracks, and groups left alone", () => {
