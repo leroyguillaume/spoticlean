@@ -17,6 +17,26 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 
 [dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
+etcetera = "0.11.0"
+futures = "0.3.34"
+getrandom = "0.4.3"
+open = "5.4.5"
+reqwest = { version = "0.13.5", features = ["json", "form", "query"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+unicode-normalization = "0.1.26"
+url = "2.5.8"
+
+[dev-dependencies]
+mockall = "0.15.0"
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["test-util"] }
