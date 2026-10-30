@@ -41,15 +41,28 @@ The whole suite, which must be green before a pull request:
 cargo test
 ```
 
-A single test:
+A single test, or every test of a module:
 
 ```sh
 cargo test build_filter_rejects_invalid_directive
 ```
 
+```sh
+cargo test matching::
+```
+
 All tests are unit tests living next to the code they cover; none needs a
-network, a service or credentials. A new behaviour comes with tests, a fix with
-a regression test.
+network, a Spotify account or credentials. The Spotify and accounts clients
+are traits mocked with `mockall`, retry delays run on tokio's paused clock, and
+the callback listener tests bind an ephemeral port on `127.0.0.1`. Nothing
+exercises the real login or the live API: try those by hand with your own
+Spotify app, as the [README](README.md#usage) describes.
+
+A new behaviour comes with tests, a fix with a regression test. A
+duplicate-detection change comes with a test in
+[`src/matching.rs`](src/matching.rs) or
+[`src/matching/normalize.rs`](src/matching/normalize.rs) showing the titles
+it now groups or keeps apart.
 
 ## Pre-commit hooks
 
