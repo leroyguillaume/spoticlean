@@ -85,10 +85,9 @@ same pull request and say why.
 | Workflow | Triggers on | What it does | Reproduce locally |
 | --- | --- | --- | --- |
 | [`quality.yaml`](.github/workflows/quality.yaml) | every pull request, push to `main` | `pre-commit run --all-files`, then `cargo test` | `pre-commit run --all-files` and `cargo test` |
-| [`security.yaml`](.github/workflows/security.yaml) | every pull request, push to `main`, daily, manual | `trivy fs` for fixable `HIGH`/`CRITICAL` vulnerabilities and secrets; uploads the full report to code scanning | `trivy fs .` |
+| [`security.yaml`](.github/workflows/security.yaml) | every pull request, push to `main`, daily, manual | `trivy fs` for fixable `HIGH`/`CRITICAL` vulnerabilities and secrets | `trivy fs .` |
 
-Both workflows are required to merge. No secret is needed; on pull requests
-from forks the report upload is skipped.
+Both workflows are required to merge. No secret is needed.
 
 ## Submitting a change
 
