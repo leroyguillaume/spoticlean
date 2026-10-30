@@ -563,7 +563,10 @@ mod tests {
     #[test]
     fn with_outside_brackets_belongs_to_the_title() {
         assert_eq!(core("Dancing with Myself"), "dancing with myself");
-        assert!(analyze_title("Dancing with Myself").featured.is_empty());
+        assert_eq!(
+            analyze_title("Dancing with Myself").featured,
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -597,6 +600,6 @@ mod tests {
         let analysis = analyze_title("");
         assert_eq!(analysis.core, "");
         assert_eq!(analysis.version, None);
-        assert!(analysis.featured.is_empty());
+        assert_eq!(analysis.featured, Vec::<String>::new());
     }
 }

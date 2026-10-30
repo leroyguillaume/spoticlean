@@ -180,7 +180,7 @@ mod tests {
             .times(1)
             .returning(|_, _| ready(Err(ApiError::Unauthorized)));
         let outcome = remove(&library, &ids(90)).await;
-        assert!(outcome.removed.is_empty());
+        assert_eq!(outcome.removed, Vec::<String>::new());
         let failures: Vec<(usize, bool)> = outcome
             .failed
             .iter()

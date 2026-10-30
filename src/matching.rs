@@ -359,6 +359,10 @@ mod tests {
 
     const TOLERANCE: Duration = Duration::from_secs(10);
 
+    fn assert_no_groups(tracks: &[Track]) {
+        assert_eq!(find_groups(tracks, TOLERANCE), Vec::<Group>::new());
+    }
+
     fn track(id: &str, title: &str, artists: &[&str], seconds: u64) -> Track {
         Track {
             id: id.to_owned(),
@@ -658,7 +662,7 @@ mod tests {
             track("a", "Song (feat. Guest One)", &["Artist"], 200),
             track("b", "Song", &["Artist", "Guest Two"], 200),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -667,7 +671,7 @@ mod tests {
             track("a", "Hallelujah", &["Leonard Cohen"], 279),
             track("b", "Hallelujah", &["Jeff Buckley"], 280),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -676,7 +680,7 @@ mod tests {
             track("a", "Song", &["Original"], 200),
             track("b", "Song (feat. Original)", &["Cover Band"], 200),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -685,7 +689,7 @@ mod tests {
             track("a", "Intro", &["Artist"], 60),
             track("b", "Intro", &["Artist"], 95),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -745,7 +749,7 @@ mod tests {
                 195,
             ),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -769,7 +773,7 @@ mod tests {
     #[test]
     fn tracks_without_artist_never_match_by_name() {
         let tracks = [track("a", "Song", &[], 200), track("b", "Song", &[], 200)];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
     }
 
     #[test]
@@ -778,8 +782,8 @@ mod tests {
             track("a", "One", &["Artist"], 200),
             track("b", "Two", &["Artist"], 200),
         ];
-        assert!(find_groups(&tracks, TOLERANCE).is_empty());
-        assert!(find_groups(&[], TOLERANCE).is_empty());
+        assert_no_groups(&tracks);
+        assert_no_groups(&[]);
     }
 
     fn keys(groups: &[Group<'_>]) -> Vec<(Confidence, String)> {
