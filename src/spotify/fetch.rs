@@ -213,7 +213,7 @@ mod tests {
             .times(1)
             .returning(|_, offset, _| ready(Ok(page(0, offset))));
         let tracks = fetch(&library, ONE).await.unwrap();
-        assert!(tracks.is_empty());
+        assert_eq!(tracks, Vec::<crate::matching::Track>::new());
     }
 
     #[tokio::test]

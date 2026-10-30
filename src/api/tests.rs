@@ -164,7 +164,7 @@ async fn login_redirects_to_spotify_with_pkce() {
     );
     assert_eq!(params["scope"], "user-library-read user-library-modify");
     assert_eq!(params["code_challenge_method"], "S256");
-    assert!(!params["state"].is_empty());
+    assert_ne!(params["state"], "");
 
     let cookies = set_cookies(&response);
     assert_eq!(cookies.len(), 1);
@@ -434,7 +434,7 @@ async fn an_unreachable_accounts_service_is_a_bad_gateway() {
         ))
         .await
         .unwrap();
-    assert!(set_cookies(&response).is_empty());
+    assert_eq!(set_cookies(&response), Vec::<String>::new());
     assert_problem(response, StatusCode::BAD_GATEWAY, "spotifyUnavailable").await;
 }
 
